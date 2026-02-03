@@ -414,10 +414,16 @@ loop:
 
 		case compile.ITERJMP:
 			iter := iterstack[len(iterstack)-1]
-			if iter.Next(&stack[sp]) {
+			continued := iter.Next(&stack[sp])
+			if continued {
 				sp++
 			} else {
 				pc = arg
+			}
+			// Loop coverage hook: report whether for-loop continues or exits.
+			// TODO(upstream): trim verbose comments to match codebase style before proposing.
+			if thread.OnIteration != nil {
+				thread.OnIteration(fn, fr.pc, continued)
 			}
 
 		case compile.ITERPOP:

@@ -1567,3 +1567,100 @@ c = identity([1, 2, 3])
 
 	t.Logf("Captured results: %v", results)
 }
+
+func TestOnIteration(t *testing.T) {
+	// Test that OnIteration callback is called for for-loop iterations.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def sum_list(items):
+    total = 0
+    for x in items:
+        total = total + x
+    return total
+
+a = sum_list([1, 2, 3])  # 3 iterations + 1 exit
+b = sum_list([])         # 0 iterations + 1 exit (immediate)
+c = sum_list([10])       # 1 iteration + 1 exit
+`
+	type iterHit struct {
+		line      int32
+		continued bool
+	}
+	var iterations []iterHit
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "loop-test",
+		OnIteration: func(fn *starlark.Function, pc uint32, continued bool) {
+			pos := fn.PositionAt(pc)
+			mu.Lock()
+			iterations = append(iterations, iterHit{pos.Line, continued})
+			mu.Unlock()
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "loop.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Count continued vs exit
+	continueCount, exitCount := 0, 0
+	for _, it := range iterations {
+		if it.continued {
+			continueCount++
+		} else {
+			exitCount++
+		}
+	}
+
+	// sum_list([1,2,3]): 3 continues, 1 exit
+	// sum_list([]): 0 continues, 1 exit
+	// sum_list([10]): 1 continue, 1 exit
+	// Total: 4 continues, 3 exits
+	if continueCount != 4 {
+		t.Errorf("expected 4 loop continues, got %d", continueCount)
+	}
+	if exitCount != 3 {
+		t.Errorf("expected 3 loop exits, got %d", exitCount)
+	}
+
+	t.Logf("OnIteration: %d continues, %d exits, total %d", continueCount, exitCount, len(iterations))
+}
+
+func TestOnIterationEmptyLoop(t *testing.T) {
+	// Test that empty loops still fire OnIteration (with continued=false).
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def empty_loop():
+    for x in []:
+        pass
+    return "done"
+
+result = empty_loop()
+`
+	var fired bool
+	var continued bool
+
+	thread := &starlark.Thread{
+		Name: "empty-loop-test",
+		OnIteration: func(fn *starlark.Function, pc uint32, cont bool) {
+			fired = true
+			continued = cont
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "empty.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	if !fired {
+		t.Error("OnIteration was not called for empty loop")
+	}
+	if continued {
+		t.Error("expected continued=false for empty loop, got true")
+	}
+
+	t.Log("Empty loop correctly fired OnIteration with continued=false")
+}

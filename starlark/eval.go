@@ -79,6 +79,13 @@ type Thread struct {
 	// TODO(upstream): trim verbose comments to match codebase style before proposing.
 	OnFunctionExit func(fn *Function, result Value)
 
+	// OnIteration is called after each for-loop iteration decision, if non-nil.
+	// This hook enables loop coverage collection. It fires for ITERJMP instructions
+	// which control for-loop iteration. The continued parameter indicates whether
+	// the loop continues (true) or exits (false). Use fn.PositionAt(pc) for position.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	OnIteration func(fn *Function, pc uint32, continued bool)
+
 	// Steps a count of abstract computation steps executed
 	// by this thread. It is incremented by the interpreter. It may be used
 	// as a measure of the approximate cost of Starlark execution, by
