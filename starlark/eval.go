@@ -51,6 +51,14 @@ type Thread struct {
 	// The default behavior is to call thread.Cancel("too many steps").
 	OnMaxSteps func(thread *Thread)
 
+	// OnExec is called before each bytecode instruction is executed, if non-nil.
+	// This hook enables coverage instrumentation, debugging, and tracing.
+	// The callback receives the executing function and program counter;
+	// use fn.PositionAt(pc) to resolve the source position.
+	// For performance, avoid calling PositionAt on every instruction—deduplicate by line.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	OnExec func(fn *Function, pc uint32)
+
 	// Steps a count of abstract computation steps executed
 	// by this thread. It is incremented by the interpreter. It may be used
 	// as a measure of the approximate cost of Starlark execution, by

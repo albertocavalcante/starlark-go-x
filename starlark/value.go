@@ -770,7 +770,13 @@ func (fn *Function) Module() *Module       { return fn.module }
 func (fn *Function) Globals() StringDict { return fn.module.Globals() }
 
 func (fn *Function) Position() syntax.Position { return fn.funcode.Pos }
-func (fn *Function) NumParams() int            { return fn.funcode.NumParams }
+
+// PositionAt returns the source position corresponding to program counter pc.
+// This is useful in OnExec callbacks to determine which source line is executing.
+// TODO(upstream): trim verbose comments to match codebase style before proposing.
+func (fn *Function) PositionAt(pc uint32) syntax.Position { return fn.funcode.Position(pc) }
+
+func (fn *Function) NumParams() int { return fn.funcode.NumParams }
 func (fn *Function) NumKwonlyParams() int      { return fn.funcode.NumKwonlyParams }
 
 // Param returns the name and position of the ith parameter,
