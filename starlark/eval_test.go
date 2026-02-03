@@ -1323,3 +1323,113 @@ z = add(x, y)
 
 	t.Logf("Line coverage: %v", coverage)
 }
+
+func TestOnBranch(t *testing.T) {
+	// Test that OnBranch callback is called for conditional branches.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def check(x):
+    if x > 0:
+        return "positive"
+    else:
+        return "non-positive"
+
+a = check(5)   # takes the true branch
+b = check(-1)  # takes the false branch
+`
+	type branchHit struct {
+		line  int32
+		taken bool
+	}
+	var branches []branchHit
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "branch-test",
+		OnBranch: func(fn *starlark.Function, pc uint32, taken bool) {
+			pos := fn.PositionAt(pc)
+			if pos.Filename() == "branch.star" {
+				mu.Lock()
+				branches = append(branches, branchHit{pos.Line, taken})
+				mu.Unlock()
+			}
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "branch.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Should have recorded branch decisions
+	if len(branches) == 0 {
+		t.Error("OnBranch callback was never called")
+	}
+
+	// Count true/false branches
+	trueCount, falseCount := 0, 0
+	for _, b := range branches {
+		if b.taken {
+			trueCount++
+		} else {
+			falseCount++
+		}
+	}
+
+	// We called check(5) which takes true branch, and check(-1) which takes false
+	if trueCount == 0 {
+		t.Error("expected at least one true branch, got none")
+	}
+	if falseCount == 0 {
+		t.Error("expected at least one false branch, got none")
+	}
+
+	t.Logf("OnBranch recorded %d branches: %d taken, %d not taken", len(branches), trueCount, falseCount)
+}
+
+func TestOnBranchShortCircuit(t *testing.T) {
+	// Test that OnBranch fires for short-circuit and/or operators.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def test_and(a, b):
+    return a and b
+
+def test_or(a, b):
+    return a or b
+
+# and: first is false, short-circuits (branch not taken to second operand)
+r1 = test_and(False, True)
+
+# and: first is true, evaluates second (branch taken)
+r2 = test_and(True, False)
+
+# or: first is true, short-circuits
+r3 = test_or(True, False)
+
+# or: first is false, evaluates second
+r4 = test_or(False, True)
+`
+	var branchCount int
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "short-circuit-test",
+		OnBranch: func(fn *starlark.Function, pc uint32, taken bool) {
+			mu.Lock()
+			branchCount++
+			mu.Unlock()
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "short.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Each and/or operator generates a CJMP for short-circuit evaluation
+	if branchCount < 4 {
+		t.Errorf("expected at least 4 branch decisions for 4 and/or calls, got %d", branchCount)
+	}
+
+	t.Logf("OnBranch fired %d times for short-circuit operators", branchCount)
+}

@@ -527,10 +527,18 @@ loop:
 			}
 
 		case compile.CJMP:
-			if stack[sp-1].Truth() {
+			cond := stack[sp-1].Truth()
+			taken := bool(cond)
+			if taken {
 				pc = arg
 			}
 			sp--
+			// Branch coverage hook: report whether conditional branch was taken.
+			// fr.pc was set before instruction decode and points to the CJMP.
+			// TODO(upstream): trim verbose comments to match codebase style before proposing.
+			if thread.OnBranch != nil {
+				thread.OnBranch(fn, fr.pc, taken)
+			}
 
 		case compile.CONSTANT:
 			stack[sp] = fn.module.constants[arg]

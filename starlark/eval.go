@@ -59,6 +59,14 @@ type Thread struct {
 	// TODO(upstream): trim verbose comments to match codebase style before proposing.
 	OnExec func(fn *Function, pc uint32)
 
+	// OnBranch is called after each conditional branch instruction, if non-nil.
+	// This hook enables branch coverage collection. It fires for CJMP instructions
+	// which implement if/elif/while conditions and short-circuit and/or operators.
+	// The taken parameter indicates whether the branch was taken (true) or
+	// fell through (false). Use fn.PositionAt(pc) for the source position.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	OnBranch func(fn *Function, pc uint32, taken bool)
+
 	// Steps a count of abstract computation steps executed
 	// by this thread. It is incremented by the interpreter. It may be used
 	// as a measure of the approximate cost of Starlark execution, by
