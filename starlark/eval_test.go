@@ -1433,3 +1433,137 @@ r4 = test_or(False, True)
 
 	t.Logf("OnBranch fired %d times for short-circuit operators", branchCount)
 }
+
+func TestOnFunctionEnterExit(t *testing.T) {
+	// Test that OnFunctionEnter and OnFunctionExit are called correctly.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def add(a, b):
+    return a + b
+
+def mul(a, b):
+    return a * b
+
+x = add(1, 2)
+y = mul(3, 4)
+z = add(x, y)
+`
+	type fnCall struct {
+		name   string
+		enter  bool // true = enter, false = exit
+		result string
+	}
+	var calls []fnCall
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "fn-coverage-test",
+		OnFunctionEnter: func(fn *starlark.Function) {
+			mu.Lock()
+			calls = append(calls, fnCall{fn.Name(), true, ""})
+			mu.Unlock()
+		},
+		OnFunctionExit: func(fn *starlark.Function, result starlark.Value) {
+			mu.Lock()
+			resultStr := ""
+			if result != nil {
+				resultStr = result.String()
+			}
+			calls = append(calls, fnCall{fn.Name(), false, resultStr})
+			mu.Unlock()
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "fn.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Verify we captured function calls
+	if len(calls) == 0 {
+		t.Error("OnFunctionEnter/Exit callbacks were never called")
+	}
+
+	// Count enter/exit by function name
+	enterCount := make(map[string]int)
+	exitCount := make(map[string]int)
+	for _, c := range calls {
+		if c.enter {
+			enterCount[c.name]++
+		} else {
+			exitCount[c.name]++
+		}
+	}
+
+	// add was called twice (lines 8 and 10), mul once (line 9)
+	if enterCount["add"] != 2 {
+		t.Errorf("expected add entered 2 times, got %d", enterCount["add"])
+	}
+	if exitCount["add"] != 2 {
+		t.Errorf("expected add exited 2 times, got %d", exitCount["add"])
+	}
+	if enterCount["mul"] != 1 {
+		t.Errorf("expected mul entered 1 time, got %d", enterCount["mul"])
+	}
+	if exitCount["mul"] != 1 {
+		t.Errorf("expected mul exited 1 time, got %d", exitCount["mul"])
+	}
+
+	// Verify enter/exit pairing (each enter should have matching exit)
+	for name, count := range enterCount {
+		if exitCount[name] != count {
+			t.Errorf("function %s: enter count %d != exit count %d", name, count, exitCount[name])
+		}
+	}
+
+	t.Logf("Function calls: %v", calls)
+}
+
+func TestOnFunctionExitResult(t *testing.T) {
+	// Test that OnFunctionExit receives the correct return value.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	src := `
+def identity(x):
+    return x
+
+a = identity(42)
+b = identity("hello")
+c = identity([1, 2, 3])
+`
+	var results []string
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "fn-result-test",
+		OnFunctionExit: func(fn *starlark.Function, result starlark.Value) {
+			// Skip toplevel module execution
+			if fn.Name() == "<toplevel>" {
+				return
+			}
+			mu.Lock()
+			if result != nil {
+				results = append(results, result.String())
+			}
+			mu.Unlock()
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "result.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Should have captured: 42, "hello", [1, 2, 3]
+	expected := []string{"42", `"hello"`, "[1, 2, 3]"}
+	if len(results) != len(expected) {
+		t.Fatalf("expected %d results, got %d: %v", len(expected), len(results), results)
+	}
+
+	for i, exp := range expected {
+		if results[i] != exp {
+			t.Errorf("result[%d]: expected %s, got %s", i, exp, results[i])
+		}
+	}
+
+	t.Logf("Captured results: %v", results)
+}

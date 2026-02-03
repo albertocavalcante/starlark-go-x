@@ -89,10 +89,24 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// - there is no redefinition of 'err'.
 
 	var iterstack []Iterator // stack of active iterators
+	var result Value         // moved here so defer can capture it
+
+	// Function coverage hook: notify function entry.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	if thread.OnFunctionEnter != nil {
+		thread.OnFunctionEnter(fn)
+	}
 
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
+		// Function coverage hook: notify function exit.
+		// result is captured by reference and will have its final value.
+		// TODO(upstream): trim verbose comments to match codebase style before proposing.
+		if thread.OnFunctionExit != nil {
+			thread.OnFunctionExit(fn, result)
+		}
+
 		// ITERPOP the rest of the iterator stack.
 		for _, iter := range iterstack {
 			iter.Done()
@@ -103,7 +117,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 
 	sp := 0
 	var pc uint32
-	var result Value
 	code := f.Code
 loop:
 	for {

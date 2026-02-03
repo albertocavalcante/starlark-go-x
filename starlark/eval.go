@@ -67,6 +67,18 @@ type Thread struct {
 	// TODO(upstream): trim verbose comments to match codebase style before proposing.
 	OnBranch func(fn *Function, pc uint32, taken bool)
 
+	// OnFunctionEnter is called when entering a Starlark function, if non-nil.
+	// This hook enables function coverage collection. Use fn.Position() for the
+	// function's source location and fn.Name() for its name.
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	OnFunctionEnter func(fn *Function)
+
+	// OnFunctionExit is called when exiting a Starlark function, if non-nil.
+	// This hook enables function coverage and profiling. The result parameter
+	// contains the return value (nil if the function raised an error).
+	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+	OnFunctionExit func(fn *Function, result Value)
+
 	// Steps a count of abstract computation steps executed
 	// by this thread. It is incremented by the interpreter. It may be used
 	// as a measure of the approximate cost of Starlark execution, by
