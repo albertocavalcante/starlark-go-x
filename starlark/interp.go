@@ -122,6 +122,10 @@ loop:
 
 		fr.pc = pc
 
+		if thread.OnExec != nil {
+			thread.OnExec(fn, pc)
+		}
+
 		op := compile.Opcode(code[pc])
 		pc++
 		var arg uint32

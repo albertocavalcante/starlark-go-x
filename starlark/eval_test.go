@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.starlark.net/internal/chunkedfile"
@@ -1214,4 +1215,111 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 	if got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
+}
+
+func TestOnExec(t *testing.T) {
+	// Test that OnExec callback is called for each instruction.
+	src := `
+def add(a, b):
+    return a + b
+
+result = add(1, 2)
+`
+	// Track (filename, line) pairs visited
+	type location struct {
+		file string
+		line int32
+	}
+	var visited []location
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "test",
+		OnExec: func(fn *starlark.Function, pc uint32) {
+			pos := fn.PositionAt(pc)
+			mu.Lock()
+			visited = append(visited, location{pos.Filename(), pos.Line})
+			mu.Unlock()
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "test.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Verify we captured some execution trace
+	if len(visited) == 0 {
+		t.Error("OnExec callback was never called")
+	}
+
+	// Verify we hit different lines
+	lines := make(map[int32]bool)
+	for _, loc := range visited {
+		if loc.file == "test.star" {
+			lines[loc.line] = true
+		}
+	}
+
+	// Should have hit at least lines 2, 3, 5 (def body, return, result assignment)
+	expectedLines := []int32{3, 5} // return statement and result assignment
+	for _, line := range expectedLines {
+		if !lines[line] {
+			t.Errorf("expected to hit line %d, visited lines: %v", line, lines)
+		}
+	}
+
+	t.Logf("OnExec visited %d instructions across %d unique lines", len(visited), len(lines))
+}
+
+func TestOnExecCoverage(t *testing.T) {
+	// Test that OnExec can be used for line coverage collection.
+	src := `def add(a, b):
+    return a + b
+
+def mul(a, b):
+    return a * b
+
+x = add(1, 2)
+y = mul(3, 4)
+z = add(x, y)
+`
+	// Collect line coverage
+	coverage := make(map[int32]int)
+	var mu sync.Mutex
+
+	thread := &starlark.Thread{
+		Name: "coverage",
+		OnExec: func(fn *starlark.Function, pc uint32) {
+			pos := fn.PositionAt(pc)
+			if pos.Filename() == "coverage.star" {
+				mu.Lock()
+				coverage[pos.Line]++
+				mu.Unlock()
+			}
+		},
+	}
+
+	_, err := starlark.ExecFile(thread, "coverage.star", src, nil)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+
+	// Verify coverage was collected for key lines
+	// Line 2: return a + b (inside add)
+	// Line 5: return a * b (inside mul)
+	// Line 7-9: assignments
+	expectedLines := []int32{2, 5, 7, 8, 9}
+	for _, line := range expectedLines {
+		if coverage[line] == 0 {
+			t.Errorf("line %d was not covered, coverage map: %v", line, coverage)
+		}
+	}
+
+	// Verify add was called twice (lines 7 and 9), mul once (line 8)
+	if coverage[2] < 2 {
+		t.Errorf("expected add body (line 2) hit at least 2 times, got %d", coverage[2])
+	}
+
+	t.Logf("Line coverage: %v", coverage)
 }
