@@ -186,15 +186,29 @@ func (p *parser) parseDefStmt() Stmt {
 	lparen := p.consume(LPAREN)
 	params := p.parseParams()
 	rparen := p.consume(RPAREN)
+
+	// Parse optional return type annotation: -> type
+	var arrowPos Position
+	var returnType *TypeExpr
+	if p.tok == ARROW {
+		if p.options.Types == TypesDisabled {
+			p.in.errorf(p.tokval.pos, "got %#v, want ':'", p.tok)
+		}
+		arrowPos = p.nextToken() // consume ARROW
+		returnType = p.parseTypeExpr()
+	}
+
 	p.consume(COLON)
 	body := p.parseSuite()
 	return &DefStmt{
-		Def:    defpos,
-		Name:   id,
-		Lparen: lparen,
-		Params: params,
-		Rparen: rparen,
-		Body:   body,
+		Def:        defpos,
+		Name:       id,
+		Lparen:     lparen,
+		Params:     params,
+		Rparen:     rparen,
+		Arrow:      arrowPos,
+		ReturnType: returnType,
+		Body:       body,
 	}
 }
 
@@ -459,7 +473,7 @@ func (p *parser) consume(t Token) Position {
 //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
 func (p *parser) parseParams() []Expr {
 	var params []Expr
-	for p.tok != RPAREN && p.tok != COLON && p.tok != EOF {
+	for p.tok != RPAREN && p.tok != COLON && p.tok != ARROW && p.tok != EOF {
 		if len(params) > 0 {
 			p.consume(COMMA)
 		}
@@ -467,13 +481,25 @@ func (p *parser) parseParams() []Expr {
 			break
 		}
 
-		// * or *args or **kwargs
+		// * or *args or *args: type or **kwargs or **kwargs: type
 		if p.tok == STAR || p.tok == STARSTAR {
 			op := p.tok
 			pos := p.nextToken()
 			var x Expr
 			if op == STARSTAR || p.tok == IDENT {
-				x = p.parseIdent()
+				id := p.parseIdent()
+				// Check for type annotation on *args or **kwargs
+				if p.tok == COLON && p.options.Types != TypesDisabled {
+					colonPos := p.nextToken() // consume COLON
+					typeExpr := p.parseTypeExpr()
+					x = &TypedParam{
+						Name:  id,
+						Colon: colonPos,
+						Type:  typeExpr,
+					}
+				} else {
+					x = id
+				}
 			}
 			params = append(params, &UnaryExpr{
 				OpPos: pos,
@@ -484,9 +510,37 @@ func (p *parser) parseParams() []Expr {
 		}
 
 		// IDENT
+		// IDENT : type
 		// IDENT = test
+		// IDENT : type = test
 		id := p.parseIdent()
-		if p.tok == EQ { // default value
+
+		// Check for type annotation
+		if p.tok == COLON && p.options.Types != TypesDisabled {
+			colonPos := p.nextToken() // consume COLON
+			typeExpr := p.parseTypeExpr()
+
+			// Check for default value
+			if p.tok == EQ {
+				p.nextToken() // consume EQ
+				dflt := p.parseTest()
+				params = append(params, &TypedParam{
+					Name:    id,
+					Colon:   colonPos,
+					Type:    typeExpr,
+					Default: dflt,
+				})
+			} else {
+				params = append(params, &TypedParam{
+					Name:  id,
+					Colon: colonPos,
+					Type:  typeExpr,
+				})
+			}
+			continue
+		}
+
+		if p.tok == EQ { // default value (no type)
 			eq := p.nextToken()
 			dflt := p.parseTest()
 			params = append(params, &BinaryExpr{
@@ -501,6 +555,16 @@ func (p *parser) parseParams() []Expr {
 		params = append(params, id)
 	}
 	return params
+}
+
+// parseTypeExpr parses a type expression.
+// Currently supports simple identifiers like 'int', 'str'.
+// TODO: Add support for generic types (list[int]) and union types (int | str).
+func (p *parser) parseTypeExpr() *TypeExpr {
+	// For now, just parse a simple identifier
+	// Future: handle list[int], dict[str, int], int | str
+	expr := p.parseIdent()
+	return &TypeExpr{Expr: expr}
 }
 
 // parseExpr parses an expression, possible consisting of a

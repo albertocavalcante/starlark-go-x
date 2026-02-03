@@ -270,6 +270,15 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
 		{"0or", "foo.star:1:3: invalid octal literal"},
 		{"6in", "6 in EOF"},
 		{"6or", "6 or EOF"},
+		// arrow token for type annotations
+		{"->", "-> EOF"},
+		{"x -> y", "x -> y EOF"},
+		{"def f() -> int:", "def f ( ) -> int : EOF"},
+		{"-", "- EOF"},       // minus should still work
+		{"--", "- - EOF"},    // double minus is two tokens
+		{"-=", "-= EOF"},     // minus-equals should still work
+		{"- >", "- > EOF"},   // space between - and > is two tokens
+		{"-->", "- -> EOF"},  // three chars: minus then arrow
 	} {
 		got, err := scan(test.input)
 		if err != nil {

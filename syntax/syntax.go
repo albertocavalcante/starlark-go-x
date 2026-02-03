@@ -121,12 +121,14 @@ func (x *AssignStmt) Span() (start, end Position) {
 // A DefStmt represents a function definition.
 type DefStmt struct {
 	commentsRef
-	Def    Position
-	Name   *Ident
-	Lparen Position
-	Params []Expr // param = ident | ident=expr | * | *ident | **ident
-	Rparen Position
-	Body   []Stmt
+	Def        Position
+	Name       *Ident
+	Lparen     Position
+	Params     []Expr // param = ident | ident=expr | * | *ident | **ident | TypedParam
+	Rparen     Position
+	Arrow      Position  // position of '->' if present, else invalid
+	ReturnType *TypeExpr // return type annotation, or nil
+	Body       []Stmt
 
 	Function interface{} // a *resolve.Function, set by resolver
 }
@@ -134,6 +136,36 @@ type DefStmt struct {
 func (x *DefStmt) Span() (start, end Position) {
 	_, end = x.Body[len(x.Body)-1].Span()
 	return x.Def, end
+}
+
+// A TypeExpr represents a type annotation expression.
+// It wraps an expression that must be a valid type (Ident, IndexExpr, BinaryExpr with PIPE).
+type TypeExpr struct {
+	commentsRef
+	Expr Expr // the underlying type expression
+}
+
+func (x *TypeExpr) Span() (start, end Position) {
+	return x.Expr.Span()
+}
+
+// A TypedParam represents a parameter with a type annotation: name: type or name: type = default.
+type TypedParam struct {
+	commentsRef
+	Name    *Ident
+	Colon   Position
+	Type    *TypeExpr
+	Default Expr // default value, or nil
+}
+
+func (x *TypedParam) Span() (start, end Position) {
+	start, _ = x.Name.Span()
+	if x.Default != nil {
+		_, end = x.Default.Span()
+	} else {
+		_, end = x.Type.Span()
+	}
+	return start, end
 }
 
 // An ExprStmt is an expression evaluated for side effects.
@@ -237,6 +269,8 @@ func (*Literal) expr()       {}
 func (*ParenExpr) expr()     {}
 func (*SliceExpr) expr()     {}
 func (*TupleExpr) expr()     {}
+func (*TypedParam) expr()    {}
+func (*TypeExpr) expr()      {}
 func (*UnaryExpr) expr()     {}
 
 // An Ident represents an identifier.

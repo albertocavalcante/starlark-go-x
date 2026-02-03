@@ -30,7 +30,23 @@ type FileOptions struct {
 
 	// compiler
 	Recursion bool // disable recursion check for functions in this file
+
+	// type system
+	Types TypeMode // controls type annotation parsing and checking
 }
+
+// TypeMode controls how type annotations are handled.
+type TypeMode int
+
+const (
+	// TypesDisabled rejects type annotation syntax (the default).
+	TypesDisabled TypeMode = iota
+	// TypesParseOnly parses type annotations but does not check them.
+	// Useful for documentation and tooling support.
+	TypesParseOnly
+	// TypesEnabled enables full static type checking.
+	TypesEnabled
+)
 
 // TODO(adonovan): provide a canonical flag parser for FileOptions.
 // (And use it in the testdata "options:" strings.)
