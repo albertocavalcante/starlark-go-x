@@ -469,6 +469,70 @@ var dataFile = func(pkgdir, filename string) string {
 	return filepath.Join(build.Default.GOPATH, "src/go.starlark.net", pkgdir, filename)
 }
 
+// TestTypeAnnotations tests parsing of type annotations with different TypeMode settings.
+func TestTypeAnnotations(t *testing.T) {
+	// Tests for TypesParseOnly mode - type annotations should be parsed
+	for _, test := range []struct {
+		input, want string
+	}{
+		// Basic parameter type annotation
+		{`def f(x: int): pass`,
+			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int))) Body=((BranchStmt Token=pass)))`},
+		// Parameter with type and default
+		{`def f(x: int = 0): pass`,
+			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int) Default=0)) Body=((BranchStmt Token=pass)))`},
+		// Multiple typed parameters
+		{`def f(x: int, y: str): pass`,
+			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int)) (TypedParam Name=y Type=(TypeExpr Expr=str))) Body=((BranchStmt Token=pass)))`},
+		// Mix of typed and untyped parameters
+		{`def f(a, x: int, b): pass`,
+			`(DefStmt Name=f Params=(a (TypedParam Name=x Type=(TypeExpr Expr=int)) b) Body=((BranchStmt Token=pass)))`},
+		// Return type annotation
+		{`def f() -> int: pass`,
+			`(DefStmt Name=f ReturnType=(TypeExpr Expr=int) Body=((BranchStmt Token=pass)))`},
+		// Both parameter and return type
+		{`def f(x: int) -> str: pass`,
+			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int))) ReturnType=(TypeExpr Expr=str) Body=((BranchStmt Token=pass)))`},
+		// *args with type
+		{`def f(*args: int): pass`,
+			`(DefStmt Name=f Params=((UnaryExpr Op=* X=(TypedParam Name=args Type=(TypeExpr Expr=int)))) Body=((BranchStmt Token=pass)))`},
+		// **kwargs with type
+		{`def f(**kwargs: str): pass`,
+			`(DefStmt Name=f Params=((UnaryExpr Op=** X=(TypedParam Name=kwargs Type=(TypeExpr Expr=str)))) Body=((BranchStmt Token=pass)))`},
+	} {
+		opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
+		f, err := opts.Parse("foo.star", test.input, 0)
+		if err != nil {
+			t.Errorf("parse `%s` failed: %v", test.input, stripPos(err))
+			continue
+		}
+		if got := treeString(f.Stmts[0]); test.want != got {
+			t.Errorf("parse `%s` = %s, want %s", test.input, got, test.want)
+		}
+	}
+}
+
+// TestTypeAnnotationsDisabled tests that type annotations are rejected when TypesDisabled.
+func TestTypeAnnotationsDisabled(t *testing.T) {
+	// With default options (TypesDisabled), type annotation syntax should fail
+	for _, test := range []struct {
+		input, wantErr string
+	}{
+		{`def f(x: int): pass`, "got ':'"},      // colon after param is unexpected
+		{`def f() -> int: pass`, "got '->'"}, // arrow is unexpected
+	} {
+		opts := &syntax.FileOptions{} // Types defaults to TypesDisabled (zero value)
+		_, err := opts.Parse("foo.star", test.input, 0)
+		if err == nil {
+			t.Errorf("parse `%s` succeeded, want error", test.input)
+			continue
+		}
+		if !strings.Contains(err.Error(), test.wantErr) {
+			t.Errorf("parse `%s` error = %v, want error containing %q", test.input, err, test.wantErr)
+		}
+	}
+}
+
 func BenchmarkParse(b *testing.B) {
 	filename := dataFile("syntax", "testdata/scan.star")
 	b.StopTimer()

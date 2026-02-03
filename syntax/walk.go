@@ -42,6 +42,9 @@ func Walk(n Node, f func(Node) bool) {
 		for _, param := range n.Params {
 			Walk(param, f)
 		}
+		if n.ReturnType != nil {
+			Walk(n.ReturnType, f)
+		}
 		walkStmts(n.Body, f)
 
 	case *ForStmt:
@@ -150,6 +153,16 @@ func Walk(n Node, f func(Node) bool) {
 			Walk(param, f)
 		}
 		Walk(n.Body, f)
+
+	case *TypeExpr:
+		Walk(n.Expr, f)
+
+	case *TypedParam:
+		Walk(n.Name, f)
+		Walk(n.Type, f)
+		if n.Default != nil {
+			Walk(n.Default, f)
+		}
 
 	default:
 		panic(n)
