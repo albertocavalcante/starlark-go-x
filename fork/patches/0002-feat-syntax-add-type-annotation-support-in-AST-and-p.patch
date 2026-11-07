@@ -1,0 +1,415 @@
+From 897e654f4f25428edf94661be9ae496f3737d3c0 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Tue, 3 Feb 2026 04:54:47 -0800
+Subject: [PATCH 2/9] feat(syntax): add type annotation support in AST and
+ parser
+
+---
+ syntax/options.go    | 16 +++++++++
+ syntax/parse.go      | 84 ++++++++++++++++++++++++++++++++++++++------
+ syntax/parse_test.go | 64 +++++++++++++++++++++++++++++++++
+ syntax/scan.go       |  8 ++++-
+ syntax/scan_test.go  |  9 +++++
+ syntax/syntax.go     | 46 ++++++++++++++++++++----
+ syntax/walk.go       | 13 +++++++
+ 7 files changed, 223 insertions(+), 17 deletions(-)
+
+diff --git a/syntax/options.go b/syntax/options.go
+index 109aaf630d87a8fc32621d7e27331511f7841017..a2c987a806bd81102c611f451cd9dec14cfc7724 100644
+--- a/syntax/options.go
++++ b/syntax/options.go
+@@ -30,8 +30,24 @@ type FileOptions struct {
+ 
+ 	// compiler
+ 	Recursion bool // disable recursion check for functions in this file
++
++	// type system
++	Types TypeMode // controls type annotation parsing and checking
+ }
+ 
++// TypeMode controls how type annotations are handled.
++type TypeMode int
++
++const (
++	// TypesDisabled rejects type annotation syntax (the default).
++	TypesDisabled TypeMode = iota
++	// TypesParseOnly parses type annotations but does not check them.
++	// Useful for documentation and tooling support.
++	TypesParseOnly
++	// TypesEnabled enables full static type checking.
++	TypesEnabled
++)
++
+ // TODO(adonovan): provide a canonical flag parser for FileOptions.
+ // (And use it in the testdata "options:" strings.)
+ 
+diff --git a/syntax/parse.go b/syntax/parse.go
+index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb15642cca 100644
+--- a/syntax/parse.go
++++ b/syntax/parse.go
+@@ -186,15 +186,29 @@ func (p *parser) parseDefStmt() Stmt {
+ 	lparen := p.consume(LPAREN)
+ 	params := p.parseParams()
+ 	rparen := p.consume(RPAREN)
++
++	// Parse optional return type annotation: -> type
++	var arrowPos Position
++	var returnType *TypeExpr
++	if p.tok == ARROW {
++		if p.options.Types == TypesDisabled {
++			p.in.errorf(p.tokval.pos, "got %#v, want ':'", p.tok)
++		}
++		arrowPos = p.nextToken() // consume ARROW
++		returnType = p.parseTypeExpr()
++	}
++
+ 	p.consume(COLON)
+ 	body := p.parseSuite()
+ 	return &DefStmt{
+-		Def:    defpos,
+-		Name:   id,
+-		Lparen: lparen,
+-		Params: params,
+-		Rparen: rparen,
+-		Body:   body,
++		Def:        defpos,
++		Name:       id,
++		Lparen:     lparen,
++		Params:     params,
++		Rparen:     rparen,
++		Arrow:      arrowPos,
++		ReturnType: returnType,
++		Body:       body,
+ 	}
+ }
+ 
+@@ -459,7 +473,7 @@ func (p *parser) consume(t Token) Position {
+ //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
+ func (p *parser) parseParams() []Expr {
+ 	var params []Expr
+-	for p.tok != RPAREN && p.tok != COLON && p.tok != EOF {
++	for p.tok != RPAREN && p.tok != COLON && p.tok != ARROW && p.tok != EOF {
+ 		if len(params) > 0 {
+ 			p.consume(COMMA)
+ 		}
+@@ -467,13 +481,25 @@ func (p *parser) parseParams() []Expr {
+ 			break
+ 		}
+ 
+-		// * or *args or **kwargs
++		// * or *args or *args: type or **kwargs or **kwargs: type
+ 		if p.tok == STAR || p.tok == STARSTAR {
+ 			op := p.tok
+ 			pos := p.nextToken()
+ 			var x Expr
+ 			if op == STARSTAR || p.tok == IDENT {
+-				x = p.parseIdent()
++				id := p.parseIdent()
++				// Check for type annotation on *args or **kwargs
++				if p.tok == COLON && p.options.Types != TypesDisabled {
++					colonPos := p.nextToken() // consume COLON
++					typeExpr := p.parseTypeExpr()
++					x = &TypedParam{
++						Name:  id,
++						Colon: colonPos,
++						Type:  typeExpr,
++					}
++				} else {
++					x = id
++				}
+ 			}
+ 			params = append(params, &UnaryExpr{
+ 				OpPos: pos,
+@@ -484,9 +510,37 @@ func (p *parser) parseParams() []Expr {
+ 		}
+ 
+ 		// IDENT
++		// IDENT : type
+ 		// IDENT = test
++		// IDENT : type = test
+ 		id := p.parseIdent()
+-		if p.tok == EQ { // default value
++
++		// Check for type annotation
++		if p.tok == COLON && p.options.Types != TypesDisabled {
++			colonPos := p.nextToken() // consume COLON
++			typeExpr := p.parseTypeExpr()
++
++			// Check for default value
++			if p.tok == EQ {
++				p.nextToken() // consume EQ
++				dflt := p.parseTest()
++				params = append(params, &TypedParam{
++					Name:    id,
++					Colon:   colonPos,
++					Type:    typeExpr,
++					Default: dflt,
++				})
++			} else {
++				params = append(params, &TypedParam{
++					Name:  id,
++					Colon: colonPos,
++					Type:  typeExpr,
++				})
++			}
++			continue
++		}
++
++		if p.tok == EQ { // default value (no type)
+ 			eq := p.nextToken()
+ 			dflt := p.parseTest()
+ 			params = append(params, &BinaryExpr{
+@@ -503,6 +557,16 @@ func (p *parser) parseParams() []Expr {
+ 	return params
+ }
+ 
++// parseTypeExpr parses a type expression.
++// Currently supports simple identifiers like 'int', 'str'.
++// TODO: Add support for generic types (list[int]) and union types (int | str).
++func (p *parser) parseTypeExpr() *TypeExpr {
++	// For now, just parse a simple identifier
++	// Future: handle list[int], dict[str, int], int | str
++	expr := p.parseIdent()
++	return &TypeExpr{Expr: expr}
++}
++
+ // parseExpr parses an expression, possible consisting of a
+ // comma-separated list of 'test' expressions.
+ //
+diff --git a/syntax/parse_test.go b/syntax/parse_test.go
+index 197e905051227cbfc022195a64a6af81ead48686..1a923a5ee94eec5bdc8fc789048866f72fe198b1 100644
+--- a/syntax/parse_test.go
++++ b/syntax/parse_test.go
+@@ -469,6 +469,70 @@ var dataFile = func(pkgdir, filename string) string {
+ 	return filepath.Join(build.Default.GOPATH, "src/go.starlark.net", pkgdir, filename)
+ }
+ 
++// TestTypeAnnotations tests parsing of type annotations with different TypeMode settings.
++func TestTypeAnnotations(t *testing.T) {
++	// Tests for TypesParseOnly mode - type annotations should be parsed
++	for _, test := range []struct {
++		input, want string
++	}{
++		// Basic parameter type annotation
++		{`def f(x: int): pass`,
++			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int))) Body=((BranchStmt Token=pass)))`},
++		// Parameter with type and default
++		{`def f(x: int = 0): pass`,
++			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int) Default=0)) Body=((BranchStmt Token=pass)))`},
++		// Multiple typed parameters
++		{`def f(x: int, y: str): pass`,
++			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int)) (TypedParam Name=y Type=(TypeExpr Expr=str))) Body=((BranchStmt Token=pass)))`},
++		// Mix of typed and untyped parameters
++		{`def f(a, x: int, b): pass`,
++			`(DefStmt Name=f Params=(a (TypedParam Name=x Type=(TypeExpr Expr=int)) b) Body=((BranchStmt Token=pass)))`},
++		// Return type annotation
++		{`def f() -> int: pass`,
++			`(DefStmt Name=f ReturnType=(TypeExpr Expr=int) Body=((BranchStmt Token=pass)))`},
++		// Both parameter and return type
++		{`def f(x: int) -> str: pass`,
++			`(DefStmt Name=f Params=((TypedParam Name=x Type=(TypeExpr Expr=int))) ReturnType=(TypeExpr Expr=str) Body=((BranchStmt Token=pass)))`},
++		// *args with type
++		{`def f(*args: int): pass`,
++			`(DefStmt Name=f Params=((UnaryExpr Op=* X=(TypedParam Name=args Type=(TypeExpr Expr=int)))) Body=((BranchStmt Token=pass)))`},
++		// **kwargs with type
++		{`def f(**kwargs: str): pass`,
++			`(DefStmt Name=f Params=((UnaryExpr Op=** X=(TypedParam Name=kwargs Type=(TypeExpr Expr=str)))) Body=((BranchStmt Token=pass)))`},
++	} {
++		opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
++		f, err := opts.Parse("foo.star", test.input, 0)
++		if err != nil {
++			t.Errorf("parse `%s` failed: %v", test.input, stripPos(err))
++			continue
++		}
++		if got := treeString(f.Stmts[0]); test.want != got {
++			t.Errorf("parse `%s` = %s, want %s", test.input, got, test.want)
++		}
++	}
++}
++
++// TestTypeAnnotationsDisabled tests that type annotations are rejected when TypesDisabled.
++func TestTypeAnnotationsDisabled(t *testing.T) {
++	// With default options (TypesDisabled), type annotation syntax should fail
++	for _, test := range []struct {
++		input, wantErr string
++	}{
++		{`def f(x: int): pass`, "got ':'"},      // colon after param is unexpected
++		{`def f() -> int: pass`, "got '->'"}, // arrow is unexpected
++	} {
++		opts := &syntax.FileOptions{} // Types defaults to TypesDisabled (zero value)
++		_, err := opts.Parse("foo.star", test.input, 0)
++		if err == nil {
++			t.Errorf("parse `%s` succeeded, want error", test.input)
++			continue
++		}
++		if !strings.Contains(err.Error(), test.wantErr) {
++			t.Errorf("parse `%s` error = %v, want error containing %q", test.input, err, test.wantErr)
++		}
++	}
++}
++
+ func BenchmarkParse(b *testing.B) {
+ 	filename := dataFile("syntax", "testdata/scan.star")
+ 	b.StopTimer()
+diff --git a/syntax/scan.go b/syntax/scan.go
+index 4a6dac641e1566d4f3449d6f16a8294f7cde1aba..7130381ebcca2aa9bed8d5351c5e315d4f2ab7e0 100644
+--- a/syntax/scan.go
++++ b/syntax/scan.go
+@@ -78,6 +78,7 @@ const (
+ 	LTLT_EQ       // <<=
+ 	GTGT_EQ       // >>=
+ 	STARSTAR      // **
++	ARROW         // ->
+ 
+ 	// Keywords
+ 	AND
+@@ -126,7 +127,7 @@ func (tok Token) String() string { return tokenNames[tok] }
+ // GoString is like String but quotes punctuation tokens.
+ // Use Sprintf("%#v", tok) when constructing error messages.
+ func (tok Token) GoString() string {
+-	if tok >= PLUS && tok <= STARSTAR {
++	if tok >= PLUS && tok <= ARROW {
+ 		return "'" + tokenNames[tok] + "'"
+ 	}
+ 	return tokenNames[tok]
+@@ -183,6 +184,7 @@ var tokenNames = [...]string{
+ 	LTLT_EQ:       "<<=",
+ 	GTGT_EQ:       ">>=",
+ 	STARSTAR:      "**",
++	ARROW:         "->",
+ 	AND:           "and",
+ 	BREAK:         "break",
+ 	CONTINUE:      "continue",
+@@ -811,6 +813,10 @@ start:
+ 		case '+':
+ 			return PLUS
+ 		case '-':
++			if sc.peekRune() == '>' {
++				sc.readRune()
++				return ARROW
++			}
+ 			return MINUS
+ 		case '/':
+ 			if sc.peekRune() == '/' {
+diff --git a/syntax/scan_test.go b/syntax/scan_test.go
+index cfed6c930a62660efcaafeb0d765633956a03f22..dc6f88c18b643f398a95358a53fd1889fd5eef1e 100644
+--- a/syntax/scan_test.go
++++ b/syntax/scan_test.go
+@@ -270,6 +270,15 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
+ 		{"0or", "foo.star:1:3: invalid octal literal"},
+ 		{"6in", "6 in EOF"},
+ 		{"6or", "6 or EOF"},
++		// arrow token for type annotations
++		{"->", "-> EOF"},
++		{"x -> y", "x -> y EOF"},
++		{"def f() -> int:", "def f ( ) -> int : EOF"},
++		{"-", "- EOF"},       // minus should still work
++		{"--", "- - EOF"},    // double minus is two tokens
++		{"-=", "-= EOF"},     // minus-equals should still work
++		{"- >", "- > EOF"},   // space between - and > is two tokens
++		{"-->", "- -> EOF"},  // three chars: minus then arrow
+ 	} {
+ 		got, err := scan(test.input)
+ 		if err != nil {
+diff --git a/syntax/syntax.go b/syntax/syntax.go
+index 5bfbcec39a8b10b9355573f34009fcc9efe3afbc..c3a02ec8467afd1ccc32888504aec10fd01d976b 100644
+--- a/syntax/syntax.go
++++ b/syntax/syntax.go
+@@ -121,12 +121,14 @@ func (x *AssignStmt) Span() (start, end Position) {
+ // A DefStmt represents a function definition.
+ type DefStmt struct {
+ 	commentsRef
+-	Def    Position
+-	Name   *Ident
+-	Lparen Position
+-	Params []Expr // param = ident | ident=expr | * | *ident | **ident
+-	Rparen Position
+-	Body   []Stmt
++	Def        Position
++	Name       *Ident
++	Lparen     Position
++	Params     []Expr // param = ident | ident=expr | * | *ident | **ident | TypedParam
++	Rparen     Position
++	Arrow      Position  // position of '->' if present, else invalid
++	ReturnType *TypeExpr // return type annotation, or nil
++	Body       []Stmt
+ 
+ 	Function interface{} // a *resolve.Function, set by resolver
+ }
+@@ -136,6 +138,36 @@ func (x *DefStmt) Span() (start, end Position) {
+ 	return x.Def, end
+ }
+ 
++// A TypeExpr represents a type annotation expression.
++// It wraps an expression that must be a valid type (Ident, IndexExpr, BinaryExpr with PIPE).
++type TypeExpr struct {
++	commentsRef
++	Expr Expr // the underlying type expression
++}
++
++func (x *TypeExpr) Span() (start, end Position) {
++	return x.Expr.Span()
++}
++
++// A TypedParam represents a parameter with a type annotation: name: type or name: type = default.
++type TypedParam struct {
++	commentsRef
++	Name    *Ident
++	Colon   Position
++	Type    *TypeExpr
++	Default Expr // default value, or nil
++}
++
++func (x *TypedParam) Span() (start, end Position) {
++	start, _ = x.Name.Span()
++	if x.Default != nil {
++		_, end = x.Default.Span()
++	} else {
++		_, end = x.Type.Span()
++	}
++	return start, end
++}
++
+ // An ExprStmt is an expression evaluated for side effects.
+ type ExprStmt struct {
+ 	commentsRef
+@@ -237,6 +269,8 @@ func (*Literal) expr()       {}
+ func (*ParenExpr) expr()     {}
+ func (*SliceExpr) expr()     {}
+ func (*TupleExpr) expr()     {}
++func (*TypedParam) expr()    {}
++func (*TypeExpr) expr()      {}
+ func (*UnaryExpr) expr()     {}
+ 
+ // An Ident represents an identifier.
+diff --git a/syntax/walk.go b/syntax/walk.go
+index 65f68083d5a0af4e2d6e96df61b231c951fb3152..8b98068a3f874fdefc893e425178ddf8cbe1a013 100644
+--- a/syntax/walk.go
++++ b/syntax/walk.go
+@@ -42,6 +42,9 @@ func Walk(n Node, f func(Node) bool) {
+ 		for _, param := range n.Params {
+ 			Walk(param, f)
+ 		}
++		if n.ReturnType != nil {
++			Walk(n.ReturnType, f)
++		}
+ 		walkStmts(n.Body, f)
+ 
+ 	case *ForStmt:
+@@ -151,6 +154,16 @@ func Walk(n Node, f func(Node) bool) {
+ 		}
+ 		Walk(n.Body, f)
+ 
++	case *TypeExpr:
++		Walk(n.Expr, f)
++
++	case *TypedParam:
++		Walk(n.Name, f)
++		Walk(n.Type, f)
++		if n.Default != nil {
++			Walk(n.Default, f)
++		}
++
+ 	default:
+ 		panic(n)
+ 	}

@@ -1,0 +1,128 @@
+From acc886ed410108383265091f6bea2a581a2a8be2 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <alberto@cavalcante.uk>
+Date: Sat, 7 Nov 2026 00:30:36 -0300
+Subject: [PATCH 7/9] fix(starlark): guarantee cleanup after exit hook panics
+ (#2)
+
+Isolate exit callbacks from iterator and frame cleanup so a recovered hook
+panic cannot leave caller-owned lists locked. Preserve hook ordering and
+panic propagation.
+
+Four regressions fail on the base and pass after the fix. Canonical checks,
+the hosted platform matrix, and independent final-diff review passed.
+
+Squashed from:
+- 972ab457242454c735f0bab41e11e5980a6a0ca2
+---
+ starlark/hook_cleanup_test.go | 70 +++++++++++++++++++++++++++++++++++
+ starlark/interp.go            | 13 +++----
+ 2 files changed, 76 insertions(+), 7 deletions(-)
+ create mode 100644 starlark/hook_cleanup_test.go
+
+diff --git a/starlark/hook_cleanup_test.go b/starlark/hook_cleanup_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..287738d0c40e20d0af7978df6c901b220e80e5aa
+--- /dev/null
++++ b/starlark/hook_cleanup_test.go
+@@ -0,0 +1,70 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark_test
++
++import (
++	"testing"
++
++	"go.starlark.net/starlark"
++)
++
++func TestExitHookPanicCleanup(t *testing.T) {
++	for _, test := range []struct {
++		name string
++		body string
++	}{
++		{"return", "return x"},
++		{"error", `fail("body error")`},
++		{"panic", "boom()"},
++		{"cancel", "cancel()"},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			xs := starlark.NewList([]starlark.Value{starlark.MakeInt(1)})
++			thread := new(starlark.Thread)
++			exitPanic := new(int)
++			var exits int
++			thread.OnFunctionExit = func(fn *starlark.Function, result starlark.Value) {
++				if fn.Name() == "f" {
++					exits++
++					panic(exitPanic)
++				}
++			}
++			predeclared := starlark.StringDict{
++				"xs": xs,
++				"boom": starlark.NewBuiltin("boom", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
++					panic("body panic")
++				}),
++				"cancel": starlark.NewBuiltin("cancel", func(thread *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
++					thread.Cancel("body cancellation")
++					return starlark.None, nil
++				}),
++			}
++			var recovered interface{}
++			func() {
++				defer func() { recovered = recover() }()
++				src := "def f(xs):\n    for x in xs:\n        " + test.body + "\nf(xs)\n"
++				_, err := starlark.ExecFile(thread, "hook.star", src, predeclared)
++				t.Errorf("ExecFile returned %v, want exit hook panic", err)
++			}()
++			if recovered != exitPanic {
++				t.Fatalf("recovered %v, want exit hook panic", recovered)
++			}
++			if exits != 1 {
++				t.Errorf("exit hook called %d times, want 1", exits)
++			}
++			if depth := thread.CallStackDepth(); depth != 0 {
++				t.Errorf("call stack depth = %d, want 0", depth)
++			}
++			if err := xs.Append(starlark.MakeInt(2)); err != nil {
++				t.Errorf("append after recovered hook panic: %v", err)
++			}
++			thread.OnFunctionExit = nil
++			thread.Uncancel()
++			if _, err := starlark.ExecFile(thread, "reuse.star", "result = 1\n", nil); err != nil {
++				t.Errorf("reuse thread: %v", err)
++			}
++		})
++	}
++}
+diff --git a/starlark/interp.go b/starlark/interp.go
+index 8c1a36ab2fa3c3abe880965cba7d8f9c5afba984..d40056acecc2c1f883f3d624b3b5f8c9e0da1fc0 100644
+--- a/starlark/interp.go
++++ b/starlark/interp.go
+@@ -104,13 +104,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+ 	// Use defer so that application panics can pass through
+ 	// interpreter without leaving thread in a bad state.
+ 	defer func() {
+-		// Function coverage hook: notify function exit.
+-		// result is captured by reference and will have its final value.
+-		// TODO(upstream): trim verbose comments to match codebase style before proposing.
+-		if thread.OnFunctionExit != nil {
+-			thread.OnFunctionExit(fn, result)
+-		}
+-
+ 		// ITERPOP the rest of the iterator stack.
+ 		for _, iter := range iterstack {
+ 			iter.Done()
+@@ -118,6 +111,12 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+ 
+ 		fr.locals = nil
+ 	}()
++	// Keep cleanup independent of a panic in the exit hook.
++	defer func() {
++		if thread.OnFunctionExit != nil {
++			thread.OnFunctionExit(fn, result)
++		}
++	}()
+ 
+ 	sp := 0
+ 	var pc uint32

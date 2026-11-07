@@ -1,0 +1,189 @@
+From 6e0fa653ca7f80ec577a2fbf7f37abfead916d03 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Tue, 3 Feb 2026 11:03:05 -0800
+Subject: [PATCH 3/9] feat: add OnBranch callback for branch coverage
+ instrumentation
+
+Add Thread.OnBranch callback invoked after each conditional branch (CJMP).
+This enables branch coverage collection in addition to line coverage.
+
+The callback receives:
+- fn: the executing function
+- pc: program counter of the CJMP instruction
+- taken: whether the branch was taken (true) or fell through (false)
+
+Use fn.PositionAt(pc) to map the PC to source location.
+
+Changes:
+- Thread.OnBranch field in eval.go
+- Callback invocation in interp.go after CJMP evaluation
+- Tests for if/else branches and short-circuit and/or operators
+
+TODO(upstream): trim verbose comments to match codebase style before proposing.
+---
+ starlark/eval.go      |   8 +++
+ starlark/eval_test.go | 110 ++++++++++++++++++++++++++++++++++++++++++
+ starlark/interp.go    |  10 +++-
+ 3 files changed, 127 insertions(+), 1 deletion(-)
+
+diff --git a/starlark/eval.go b/starlark/eval.go
+index 8a67cbf16a7ca138a03b8632775f01b33c665703..112d955dc8d09996a85fe6cc73c8564173f92687 100644
+--- a/starlark/eval.go
++++ b/starlark/eval.go
+@@ -59,6 +59,14 @@ type Thread struct {
+ 	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+ 	OnExec func(fn *Function, pc uint32)
+ 
++	// OnBranch is called after each conditional branch instruction, if non-nil.
++	// This hook enables branch coverage collection. It fires for CJMP instructions
++	// which implement if/elif/while conditions and short-circuit and/or operators.
++	// The taken parameter indicates whether the branch was taken (true) or
++	// fell through (false). Use fn.PositionAt(pc) for the source position.
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	OnBranch func(fn *Function, pc uint32, taken bool)
++
+ 	// Steps a count of abstract computation steps executed
+ 	// by this thread. It is incremented by the interpreter. It may be used
+ 	// as a measure of the approximate cost of Starlark execution, by
+diff --git a/starlark/eval_test.go b/starlark/eval_test.go
+index ac70ca913da1a1e4edf27fc3f2902928c6bcab1e..7f871c366203979101011e45f36f8154a998d1b8 100644
+--- a/starlark/eval_test.go
++++ b/starlark/eval_test.go
+@@ -1323,3 +1323,113 @@ z = add(x, y)
+ 
+ 	t.Logf("Line coverage: %v", coverage)
+ }
++
++func TestOnBranch(t *testing.T) {
++	// Test that OnBranch callback is called for conditional branches.
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	src := `
++def check(x):
++    if x > 0:
++        return "positive"
++    else:
++        return "non-positive"
++
++a = check(5)   # takes the true branch
++b = check(-1)  # takes the false branch
++`
++	type branchHit struct {
++		line  int32
++		taken bool
++	}
++	var branches []branchHit
++	var mu sync.Mutex
++
++	thread := &starlark.Thread{
++		Name: "branch-test",
++		OnBranch: func(fn *starlark.Function, pc uint32, taken bool) {
++			pos := fn.PositionAt(pc)
++			if pos.Filename() == "branch.star" {
++				mu.Lock()
++				branches = append(branches, branchHit{pos.Line, taken})
++				mu.Unlock()
++			}
++		},
++	}
++
++	_, err := starlark.ExecFile(thread, "branch.star", src, nil)
++	if err != nil {
++		t.Fatalf("ExecFile failed: %v", err)
++	}
++
++	// Should have recorded branch decisions
++	if len(branches) == 0 {
++		t.Error("OnBranch callback was never called")
++	}
++
++	// Count true/false branches
++	trueCount, falseCount := 0, 0
++	for _, b := range branches {
++		if b.taken {
++			trueCount++
++		} else {
++			falseCount++
++		}
++	}
++
++	// We called check(5) which takes true branch, and check(-1) which takes false
++	if trueCount == 0 {
++		t.Error("expected at least one true branch, got none")
++	}
++	if falseCount == 0 {
++		t.Error("expected at least one false branch, got none")
++	}
++
++	t.Logf("OnBranch recorded %d branches: %d taken, %d not taken", len(branches), trueCount, falseCount)
++}
++
++func TestOnBranchShortCircuit(t *testing.T) {
++	// Test that OnBranch fires for short-circuit and/or operators.
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	src := `
++def test_and(a, b):
++    return a and b
++
++def test_or(a, b):
++    return a or b
++
++# and: first is false, short-circuits (branch not taken to second operand)
++r1 = test_and(False, True)
++
++# and: first is true, evaluates second (branch taken)
++r2 = test_and(True, False)
++
++# or: first is true, short-circuits
++r3 = test_or(True, False)
++
++# or: first is false, evaluates second
++r4 = test_or(False, True)
++`
++	var branchCount int
++	var mu sync.Mutex
++
++	thread := &starlark.Thread{
++		Name: "short-circuit-test",
++		OnBranch: func(fn *starlark.Function, pc uint32, taken bool) {
++			mu.Lock()
++			branchCount++
++			mu.Unlock()
++		},
++	}
++
++	_, err := starlark.ExecFile(thread, "short.star", src, nil)
++	if err != nil {
++		t.Fatalf("ExecFile failed: %v", err)
++	}
++
++	// Each and/or operator generates a CJMP for short-circuit evaluation
++	if branchCount < 4 {
++		t.Errorf("expected at least 4 branch decisions for 4 and/or calls, got %d", branchCount)
++	}
++
++	t.Logf("OnBranch fired %d times for short-circuit operators", branchCount)
++}
+diff --git a/starlark/interp.go b/starlark/interp.go
+index 4fe8b8ee51b6db20e73d72f4c08b522697cb6447..517b6a52fa060e2df926ffcbe963ff417c72f157 100644
+--- a/starlark/interp.go
++++ b/starlark/interp.go
+@@ -527,10 +527,18 @@ loop:
+ 			}
+ 
+ 		case compile.CJMP:
+-			if stack[sp-1].Truth() {
++			cond := stack[sp-1].Truth()
++			taken := bool(cond)
++			if taken {
+ 				pc = arg
+ 			}
+ 			sp--
++			// Branch coverage hook: report whether conditional branch was taken.
++			// fr.pc was set before instruction decode and points to the CJMP.
++			// TODO(upstream): trim verbose comments to match codebase style before proposing.
++			if thread.OnBranch != nil {
++				thread.OnBranch(fn, fr.pc, taken)
++			}
+ 
+ 		case compile.CONSTANT:
+ 			stack[sp] = fn.module.constants[arg]

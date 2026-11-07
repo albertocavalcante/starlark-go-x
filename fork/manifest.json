@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "upstream": {
+    "url": "https://github.com/google/starlark-go.git",
+    "branch": "master",
+    "commit": "3fee463870c9e2f24e391952f5cf5e95463357b4",
+    "archive_ref": "refs/tags/upstream/3fee463870c9e2f24e391952f5cf5e95463357b4"
+  },
+  "patches": [
+    {
+      "id": "execution-hook",
+      "file": "0001-feat-add-OnExec-callback-for-coverage-instrumentatio.patch",
+      "sha256": "28668b18b959149a3d1d933827e964e61f1993bd9cec8c01dbdde6363c578b7f",
+      "reason": "Instruction callbacks and PositionAt for source-mapped instrumentation.",
+      "dependencies": [],
+      "tests": [
+        "go test ./starlark -run TestOnExec"
+      ],
+      "upstream_disposition": "fork-only API"
+    },
+    {
+      "id": "annotation-parser",
+      "file": "0002-feat-syntax-add-type-annotation-support-in-AST-and-p.patch",
+      "sha256": "9f49107ce7c99e1c0f105634bbea2498f5cc3f21e5ce4e81925adeb10c910ef2",
+      "reason": "Inspect annotations in an explicitly enabled parser dialect.",
+      "dependencies": [
+        "execution-hook"
+      ],
+      "tests": [
+        "go test ./syntax"
+      ],
+      "upstream_disposition": "fork-only parser dialect; typed execution unsupported"
+    },
+    {
+      "id": "branch-hook",
+      "file": "0003-feat-add-OnBranch-callback-for-branch-coverage-instr.patch",
+      "sha256": "ab57eeecec62a7d0b6f7e737e3e3db86a81358a6fa1da1a04bafe6d3f327a377",
+      "reason": "Report conditional jump outcomes for coverage.",
+      "dependencies": [
+        "execution-hook",
+        "annotation-parser"
+      ],
+      "tests": [
+        "go test ./starlark -run TestOnBranch"
+      ],
+      "upstream_disposition": "fork-only API"
+    },
+    {
+      "id": "function-hooks",
+      "file": "0004-feat-add-OnFunctionEnter-Exit-callbacks-for-function.patch",
+      "sha256": "1e77e1395010dd40d6fdb1ba98df16b4b9001909178c2273071f99525788288d",
+      "reason": "Report function entry and exit for coverage.",
+      "dependencies": [
+        "branch-hook"
+      ],
+      "tests": [
+        "go test ./starlark -run TestOnFunction"
+      ],
+      "upstream_disposition": "fork-only API"
+    },
+    {
+      "id": "iteration-hook",
+      "file": "0005-feat-add-OnIteration-callback-for-loop-coverage-inst.patch",
+      "sha256": "24ec86dfe5dd199d07e191272eb48f76f829670e921d8e9f39d39df5c41f21ea",
+      "reason": "Report loop iteration events for coverage.",
+      "dependencies": [
+        "function-hooks"
+      ],
+      "tests": [
+        "go test ./starlark -run TestOnIteration"
+      ],
+      "upstream_disposition": "fork-only API"
+    },
+    {
+      "id": "attribution",
+      "file": "0006-docs-attribute-fork-modifications-to-Alberto-Cavalca.patch",
+      "sha256": "1d216e989fd1a85fb43f914c7642ebabb2bcc060950142b207b08fcaf62e78e3",
+      "reason": "Preserve upstream notices and attribute Alberto Cavalcante additions.",
+      "dependencies": [
+        "iteration-hook"
+      ],
+      "tests": [
+        "git diff --exit-code 3fee463 -- LICENSE"
+      ],
+      "upstream_disposition": "fork ownership notice"
+    },
+    {
+      "id": "exit-hook-cleanup",
+      "file": "0007-fix-starlark-guarantee-cleanup-after-exit-hook-panic.patch",
+      "sha256": "c1c5cd40804a9082d1a7757179c5fa77fb5e18f80ed3776f576c45d8a159bd1b",
+      "reason": "Release iterators and frames even when an exit callback panics.",
+      "dependencies": [
+        "function-hooks",
+        "attribution"
+      ],
+      "tests": [
+        "go test ./starlark -run TestExit"
+      ],
+      "upstream_disposition": "fork hook regression"
+    },
+    {
+      "id": "lambda-grammar",
+      "file": "0008-fix-syntax-keep-lambda-colons-out-of-type-annotation.patch",
+      "sha256": "290c1c9e64d8bd08f94d4d15ea28c1fe1cddb40ca6a9fc48b97ce661ffc008c7",
+      "reason": "Keep lambda body colons distinct from def annotations.",
+      "dependencies": [
+        "annotation-parser",
+        "attribution"
+      ],
+      "tests": [
+        "go test ./syntax -run TestAnnotation"
+      ],
+      "upstream_disposition": "fork parser regression"
+    },
+    {
+      "id": "annotation-safety",
+      "file": "0009-fix-resolve-reject-unsupported-typed-execution-safel.patch",
+      "sha256": "1e4f943e7f8162cd8afc12ad970e1215152518c99a200724e8c80bb3870883e2",
+      "reason": "Return ordinary errors for unsupported typed execution and checking.",
+      "dependencies": [
+        "annotation-parser",
+        "lambda-grammar"
+      ],
+      "tests": [
+        "go test ./starlark -run TestAnnotation"
+      ],
+      "upstream_disposition": "fork parser execution boundary"
+    }
+  ]
+}
