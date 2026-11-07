@@ -167,6 +167,19 @@
         "gh workflow run upstream.yml --ref trunk"
       ],
       "upstream_disposition": "fork maintenance policy"
+    },
+    {
+      "id": "fork-onboarding",
+      "file": "013-fork-onboarding.patch",
+      "sha256": "afa4b2510effff6bf00972928f4218604f15b2497c5e36a52c497ae5bce5aa80",
+      "reason": "Identify the fork and direct consumers to its installation, checks, limits and ownership notices.",
+      "dependencies": [
+        "upstream-drift"
+      ],
+      "tests": [
+        "compile and run fork/USAGE.md example in a fresh module with GOWORK=off"
+      ],
+      "upstream_disposition": "fork documentation"
     }
   ]
 }
