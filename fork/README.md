@@ -92,8 +92,9 @@ The manifest, rather than GitHub's ancestry counts, identifies the imported base
    to this fork, and verify its remotely fetched peeled identity. A tag name alone
    is not evidence. Never move an existing archive tag. Keep the original LICENSE.
 3. In a disposable checkout at the new upstream SHA, replay the manifest patches
-   in order. `git am --3way` and local rerere may assist adaptation. Inspect every
-   resolution. In particular, preserve both upstream cancellation/back-edge
+   in order. Use `git apply --3way --index` for raw diffs emitted by the prepare
+   command; `git am --3way` accepts mailbox-format patches only. Local rerere may
+   assist manual adaptation. Inspect every resolution. In particular, preserve both upstream cancellation/back-edge
    checks and fork branch callbacks; never select an entire conflict side blindly.
 4. Commit each adapted logical patch and export it using
    `git format-patch --full-index --binary`. Exclude `fork/`. Replace the queue,
