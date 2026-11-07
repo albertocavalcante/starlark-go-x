@@ -91,6 +91,12 @@ denominator. No zero-overhead claim is made for unset hooks.
 
 ## Logical resource budget
 
+This API requires a revision whose manifest includes `resource-budget`. The
+historical hook-example pin above predates it. For a candidate PR, select its
+recorded immutable head revision in the consuming application's replacement;
+rerun the consumer checks before adopting it. Published API availability is
+established by the selected revision, not by reading newer documentation.
+
 Attach an optional budget before evaluation:
 
 ```go

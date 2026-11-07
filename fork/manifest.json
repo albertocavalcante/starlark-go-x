@@ -199,7 +199,7 @@
     {
       "id": "resource-budget",
       "file": "015-resource-budget.patch",
-      "sha256": "12245010858fc645a9b6e25ee1c6df7c4aa6ab6eb066dd2feef73388e7b1c256",
+      "sha256": "52edb6aabc48e95887e54d87ddf0b8603626a2cbd4b14a5480fd72bd3ab5d832",
       "reason": "Charge logical repetition output before allocation and let cooperating hosts charge declared work; other allocation paths remain unmetered.",
       "dependencies": [
         "hook-panic-contracts"

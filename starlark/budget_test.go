@@ -5,10 +5,15 @@
 package starlark_test
 
 import (
+	"context"
 	"errors"
 	"math"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -71,11 +76,33 @@ func TestBudgetRepeat(t *testing.T) {
 }
 
 func TestBudgetRejectsLargeRepeat(t *testing.T) {
+	// Isolate process-wide allocation accounting from other tests. The finite
+	// 16 MiB mutation case must fail this check even if it returns BudgetError.
+	if os.Getenv("STARLARK_BUDGET_ALLOCATION_CHILD") != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBudgetRejectsLargeRepeat$")
+		cmd.Env = append(os.Environ(), "STARLARK_BUDGET_ALLOCATION_CHILD=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("allocation child: %v\n%s", err, output)
+		}
+		return
+	}
 	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 1024})}
-	_, err := starlark.ExecFile(thread, "large.star", `answer = "x" * 16777216`, nil)
+	globals, err := starlark.ExecFile(thread, "large.star", "def repeat(n):\n    return \"x\" * n\n", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err = starlark.Call(thread, globals["repeat"], starlark.Tuple{starlark.MakeInt(16777216)}, nil)
+	runtime.ReadMemStats(&after)
 	var budgetErr *starlark.BudgetError
 	if !errors.As(err, &budgetErr) || budgetErr.Requested != 16777216 || thread.Budget.Usage().Bytes != 0 {
 		t.Fatalf("large repeat was not refused: %v", err)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated >= 4<<20 {
+		t.Fatalf("refused repetition allocated %d bytes; limit check must precede the 16 MiB allocation", allocated)
 	}
 }
 
