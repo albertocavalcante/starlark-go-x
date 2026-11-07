@@ -34,7 +34,13 @@ unset GOEXPERIMENT
 
 go list -mod=readonly -m -json all >"$output/upstream-modules.json"
 go list -mod=readonly -modfile=fork.go.mod -m -json all >"$output/fork-modules.json"
+# A cold module cache has no .Dir until its pinned source zip is fetched.
+go mod download -modfile=fork.go.mod -json >"$output/fork-download.json"
 fork_dir=$(go list -mod=readonly -modfile=fork.go.mod -m -f '{{.Dir}}' go.starlark.net)
+[ -n "$fork_dir" ] || {
+  echo 'pinned fork source was not downloaded' >&2
+  exit 1
+}
 cp "$fork_dir/fork/manifest.json" "$output/fork-manifest.json"
 jq -e '.upstream.commit == "4f4267fb140d1e8b91c9bce55cee2f809e8840dd"' "$output/fork-manifest.json" >/dev/null
 
