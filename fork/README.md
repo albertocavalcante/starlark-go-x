@@ -128,8 +128,14 @@ measure representative workloads before making performance claims.
 Prove historical reconstruction using a fresh transport clone (`git clone
 --no-local --no-tags` for a local source), with no object alternates and no access
 to Google. Fetch the recorded archive explicitly from the fork, then verify.
-Missing or mismatched archives must fail. The verifier's fixture tests exercise
-this boundary; repeat it against actual published revisions before landing imports.
+Missing or mismatched archives must fail. Run `fork/recover.sh "$PWD"` from a
+reviewed checkout to reconstruct its committed revision and historical `b2230ce`
+using the fork's actual remote archives. The harness builds only the current
+verifier, uses fresh transport clones without alternates, checks missing/moved
+archive failures and removes temporary clones. It needs Go, Git and jq plus access
+to the fork; it never fetches from Google. The read-only **Archive recovery**
+workflow repeats this on PRs, trunk pushes, weekly and on manual dispatch. A
+successful manual run does not establish that a scheduled event was delivered.
 
 On failed replay or checks, leave published trunk and consumer pins alone. After
 a faulty publication, repin consumers to the last good revision and submit a
@@ -148,3 +154,12 @@ Automatic conflict resolution and privileged publishing are outside this command
 Before adding publishing, bind trusted workflow/run/attempt/base/head/manifest/tree
 and artifact identities, reject mismatches, and ensure candidate code never sees
 write credentials. Keep one temporary update branch rather than a branch backlog.
+
+## Measure hook costs
+
+The isolated [benchmark harness](bench/README.md) pins a common upstream base,
+fork runtime snapshot, exact toolchain and benchstat. It records ten alternating
+samples for fixed parsing/evaluation workloads and separates nil/active hooks.
+Run it explicitly on a quiet host; busy-machine results do not establish a stable
+performance budget. Its development dependencies are excluded from the library
+module by the nested-module boundary.

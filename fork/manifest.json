@@ -197,8 +197,21 @@
       "upstream_disposition": "fork hook regression"
     },
     {
+      "id": "archive-recovery",
+      "file": "015-archive-recovery.patch",
+      "sha256": "41a5e117b2641ac31710e7b6918f0f68aaa82e975b6bd5ad59c190d46075163d",
+      "reason": "Periodically reconstruct current and historical snapshots from real fork archives and reject missing/moved archive refs.",
+      "dependencies": [
+        "maintenance-ci"
+      ],
+      "tests": [
+        "fork/recover.sh \"$PWD\""
+      ],
+      "upstream_disposition": "fork maintenance automation"
+    },
+    {
       "id": "resource-budget",
-      "file": "015-resource-budget.patch",
+      "file": "016-resource-budget.patch",
       "sha256": "52edb6aabc48e95887e54d87ddf0b8603626a2cbd4b14a5480fd72bd3ab5d832",
       "reason": "Charge logical repetition output before allocation and let cooperating hosts charge declared work; other allocation paths remain unmetered.",
       "dependencies": [
@@ -212,11 +225,12 @@
     },
     {
       "id": "runmux-routing",
-      "file": "016-runmux-routing.patch",
-      "sha256": "30058c61aa0008142e624068f160ec70b596c7d3ae174e03676471fe53af7d21",
-      "reason": "Route Linux matrix cells through Runmux while retaining explicit native macOS and Windows cells.",
+      "file": "017-runmux-routing.patch",
+      "sha256": "3c74f13756f63206bdd163205395cdd81c75a956ea6e4544f951cea409eeafd6",
+      "reason": "Route Linux tests, archive recovery and upstream drift through Runmux while retaining explicit native macOS and Windows cells.",
       "dependencies": [
-        "maintenance-ci"
+        "maintenance-ci",
+        "archive-recovery"
       ],
       "tests": [
         "actionlint .github/workflows/tests.yml"
