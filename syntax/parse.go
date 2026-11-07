@@ -185,7 +185,7 @@ func (p *parser) parseDefStmt() Stmt {
 	defpos := p.nextToken() // consume DEF
 	id := p.parseIdent()
 	lparen := p.consume(LPAREN)
-	params := p.parseParams()
+	params := p.parseParams(true)
 	rparen := p.consume(RPAREN)
 
 	// Parse optional return type annotation: -> type
@@ -466,13 +466,14 @@ func (p *parser) consume(t Token) Position {
 //	| STARSTAR IDENT
 //
 // parseParams parses a parameter list.  The resulting expressions are of the form:
+// Type annotations are permitted only in def parameter lists, not lambdas.
 //
 //	*Ident                                          x
 //	*Binary{Op: EQ, X: *Ident, Y: Expr}             x=y
 //	*Unary{Op: STAR}                                *
 //	*Unary{Op: STAR, X: *Ident}                     *args
 //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
-func (p *parser) parseParams() []Expr {
+func (p *parser) parseParams(allowTypes bool) []Expr {
 	var params []Expr
 	for p.tok != RPAREN && p.tok != COLON && p.tok != ARROW && p.tok != EOF {
 		if len(params) > 0 {
@@ -490,7 +491,7 @@ func (p *parser) parseParams() []Expr {
 			if op == STARSTAR || p.tok == IDENT {
 				id := p.parseIdent()
 				// Check for type annotation on *args or **kwargs
-				if p.tok == COLON && p.options.Types != TypesDisabled {
+				if p.tok == COLON && allowTypes && p.options.Types != TypesDisabled {
 					colonPos := p.nextToken() // consume COLON
 					typeExpr := p.parseTypeExpr()
 					x = &TypedParam{
@@ -517,7 +518,7 @@ func (p *parser) parseParams() []Expr {
 		id := p.parseIdent()
 
 		// Check for type annotation
-		if p.tok == COLON && p.options.Types != TypesDisabled {
+		if p.tok == COLON && allowTypes && p.options.Types != TypesDisabled {
 			colonPos := p.nextToken() // consume COLON
 			typeExpr := p.parseTypeExpr()
 
@@ -639,7 +640,7 @@ func (p *parser) parseLambda(allowCond bool) Expr {
 	lambda := p.nextToken()
 	var params []Expr
 	if p.tok != COLON {
-		params = p.parseParams()
+		params = p.parseParams(false)
 	}
 	p.consume(COLON)
 
