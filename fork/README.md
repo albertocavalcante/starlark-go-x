@@ -36,6 +36,50 @@ publishing credentials; a future publisher must use its own trusted verifier.
 
 ## Update upstream
 
+### Prepare an update locally
+
+After fetching and independently verifying a new Google commit and its immutable
+fork archive tag, run:
+
+```sh
+go run ./fork prepare -revision origin/trunk -upstream FULL_UPSTREAM_SHA -output /path/to/new-update-directory
+```
+
+Preparation requires a working checkout; Git metadata directories and bare
+repository sources are rejected. A source subdirectory is normalized to its
+checkout root. Fork metadata must contain regular files rather than symlinks or
+submodules, and generated metadata files are replaced atomically.
+
+The output directory's parent must exist. The directory must be new and outside
+the source checkout and its Git metadata, including a shared worktree Git dir.
+Only committed inputs are used; dirty source work is preserved. Git network
+transports and lazy fetching are disabled. Fetch/archive creation remain explicit
+maintainer steps before preparation.
+
+The command first verifies the captured fork revision, seeds the old patch blobs,
+and replays onto the selected forward upstream commit with three-way assistance
+and conflict reuse disabled. On success, `repo/` contains a single-parent snapshot
+whose parent is the captured fork revision. The refreshed queue preserves patch
+IDs and rationale; generated payloads are full-index binary-capable Git diffs.
+Disposable replay commits identify working checkpoints, not copyright ownership
+or published feature history. Source notices and FORK_NOTICE remain authoritative.
+
+`report.json` records captured inputs, status, candidate and verified tree;
+`range.diff` compares the reconstructed old and new replay histories. A matching
+upstream base returns `noop` without creating output. A conflict returns nonzero
+and retains the patch ID, index and report for inspection. A patch made empty by
+upstream stops for an equivalence/retirement decision. Reusing an existing output,
+including an interrupted workspace, fails rather than overwriting evidence.
+
+Preparation reruns exact reconstruction without conflict assistance and checks
+that the selected local source ref has not advanced. It does not establish remote
+freshness, runtime compatibility, consumer readiness, review approval or permission
+to publish. Inspect conflicts manually, then refresh and reverify the resulting
+queue; this command does not resume conflicted outputs automatically. Remove
+disposable outputs after saving needed evidence and completing the update.
+
+### Review and publish
+
 Keep published `trunk` append-only through squash PRs. Original upstream commits
 are preserved by immutable `upstream/<full-SHA>` tags, protected against updates
 and deletion without bypass actors. Existing consumer pins stay reachable.
@@ -48,8 +92,9 @@ The manifest, rather than GitHub's ancestry counts, identifies the imported base
    to this fork, and verify its remotely fetched peeled identity. A tag name alone
    is not evidence. Never move an existing archive tag. Keep the original LICENSE.
 3. In a disposable checkout at the new upstream SHA, replay the manifest patches
-   in order. `git am --3way` and local rerere may assist adaptation. Inspect every
-   resolution. In particular, preserve both upstream cancellation/back-edge
+   in order. Use `git apply --3way --index` for raw diffs emitted by the prepare
+   command; `git am --3way` accepts mailbox-format patches only. Local rerere may
+   assist manual adaptation. Inspect every resolution. In particular, preserve both upstream cancellation/back-edge
    checks and fork branch callbacks; never select an entire conflict side blindly.
 4. Commit each adapted logical patch and export it using
    `git format-patch --full-index --binary`. Exclude `fork/`. Replace the queue,
