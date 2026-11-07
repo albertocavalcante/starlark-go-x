@@ -1,0 +1,224 @@
+From 0dd0620bd914ecf81480ad1de1bf5c9fcb48f1dc Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <alberto@cavalcante.uk>
+Date: Sat, 7 Nov 2026 00:37:22 -0300
+Subject: [PATCH 9/9] fix(resolve): reject unsupported typed execution safely
+ (#4)
+
+Return ordinary errors before unsupported annotation ASTs reach resolver
+and compiler assumptions that can panic the host. Reserve static checking
+mode and report its unavailability explicitly while preserving parsing.
+
+Fail-first regressions, canonical and consumer tests, upstream replay,
+and independent final-head review validate the execution boundary.
+
+Squashed from:
+- 4969b3fd6ccf38f9d0c1b7b6e2fac833d1282f0c
+---
+ resolve/resolve.go                    |  21 ++++++
+ starlark/annotation_execution_test.go | 104 ++++++++++++++++++++++++++
+ syntax/options.go                     |   8 +-
+ 3 files changed, 130 insertions(+), 3 deletions(-)
+ create mode 100644 starlark/annotation_execution_test.go
+
+diff --git a/resolve/resolve.go b/resolve/resolve.go
+index c2ca7eb554c3ba79a62fe0a70ec28e42ca189128..47aa3a4d0acd9efcdb87e45e6045d05ead24d1b0 100644
+--- a/resolve/resolve.go
++++ b/resolve/resolve.go
+@@ -1,4 +1,5 @@
+ // Copyright 2017 The Bazel Authors. All rights reserved.
++// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+@@ -139,6 +140,9 @@ func File(file *syntax.File, isPredeclared, isUniversal func(name string) bool)
+ // REPLChunk is a generalization of the File function that supports a
+ // non-empty initial global block, as occurs in a REPL.
+ func REPLChunk(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool) error {
++	if file.Options.Types == syntax.TypesEnabled {
++		return ErrorList{{syntax.MakePosition(&file.Path, 1, 1), "static type checking is not supported"}}
++	}
+ 	r := newResolver(file.Options, isGlobal, isPredeclared, isUniversal)
+ 	r.stmts(file.Stmts)
+ 
+@@ -173,6 +177,9 @@ func Expr(expr syntax.Expr, isPredeclared, isUniversal func(name string) bool) (
+ //
+ // The isPredeclared and isUniversal predicates behave as for the File function
+ func ExprOptions(opts *syntax.FileOptions, expr syntax.Expr, isPredeclared, isUniversal func(name string) bool) ([]*Binding, error) {
++	if opts.Types == syntax.TypesEnabled {
++		return nil, ErrorList{{syntax.Start(expr), "static type checking is not supported"}}
++	}
+ 	r := newResolver(opts, nil, isPredeclared, isUniversal)
+ 	r.expr(expr)
+ 	r.env.resolveLocalUses()
+@@ -528,6 +535,10 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
+ 		r.assign(stmt.LHS, isAugmented)
+ 
+ 	case *syntax.DefStmt:
++		if stmt.ReturnType != nil {
++			r.errorf(stmt.Arrow, "type annotations are not supported during evaluation")
++			return
++		}
+ 		r.bind(stmt.Name)
+ 		fn := &Function{
+ 			Name:   stmt.Name.Name,
+@@ -648,6 +659,9 @@ func (r *resolver) assign(lhs syntax.Expr, isAugmented bool) {
+ 
+ func (r *resolver) expr(e syntax.Expr) {
+ 	switch e := e.(type) {
++	case *syntax.TypedParam, *syntax.TypeExpr:
++		r.errorf(syntax.Start(e), "type annotations are not supported during evaluation")
++
+ 	case *syntax.Ident:
+ 		r.use(e)
+ 
+@@ -819,6 +833,13 @@ func (r *resolver) expr(e syntax.Expr) {
+ func (r *resolver) function(function *Function, pos syntax.Position) {
+ 	// Resolve defaults in enclosing environment.
+ 	for _, param := range function.Params {
++		if unary, ok := param.(*syntax.UnaryExpr); ok {
++			param = unary.X
++		}
++		if typed, ok := param.(*syntax.TypedParam); ok {
++			r.errorf(typed.Colon, "type annotations are not supported during evaluation")
++			return
++		}
+ 		if binary, ok := param.(*syntax.BinaryExpr); ok {
+ 			r.expr(binary.Y)
+ 		}
+diff --git a/starlark/annotation_execution_test.go b/starlark/annotation_execution_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..46092fcd8ac9e2e5d92eb3ae0a2f055ff2021613
+--- /dev/null
++++ b/starlark/annotation_execution_test.go
+@@ -0,0 +1,104 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark_test
++
++import (
++	"strings"
++	"testing"
++
++	"go.starlark.net/resolve"
++	"go.starlark.net/starlark"
++	"go.starlark.net/syntax"
++)
++
++func TestAnnotationsCannotExecute(t *testing.T) {
++	for _, src := range []string{
++		"def f(x: int): pass\nf(1)\n",
++		"def f(x: int): return x\nf(1)\n",
++		"def f(x: int = 42): pass\nf()\n",
++		"def f(*args: int): pass\nf(1)\n",
++		"def f(**kwargs: str): pass\nf(a=1)\n",
++		"def f(*, x: int): pass\nf(x=1)\n",
++		"def f() -> int: return 1\nf()\n",
++		"def outer():\n    def f(x: int): pass\n    f(1)\nouter()\n",
++	} {
++		for _, api := range []string{"ExecFileOptions", "SourceProgramOptions", "FileProgram", "resolve.File", "resolve.REPLChunk"} {
++			t.Run(api+"/"+src, func(t *testing.T) {
++				defer func() {
++					if p := recover(); p != nil {
++						t.Errorf("unsupported annotations caused a host panic: %v", p)
++					}
++				}()
++				opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
++				predeclared := starlark.StringDict{}
++				f, err := opts.Parse("typed.star", src, 0)
++				if err != nil {
++					t.Fatal(err)
++				}
++				switch api {
++				case "ExecFileOptions":
++					_, err = starlark.ExecFileOptions(opts, new(starlark.Thread), "typed.star", src, nil)
++				case "SourceProgramOptions":
++					_, _, err = starlark.SourceProgramOptions(opts, "typed.star", src, predeclared.Has)
++				case "FileProgram":
++					// The parsed AST must remain guarded even if its options change.
++					f.Options = &syntax.FileOptions{}
++					_, err = starlark.FileProgram(f, predeclared.Has)
++				case "resolve.File":
++					err = resolve.File(f, predeclared.Has, starlark.Universe.Has)
++				case "resolve.REPLChunk":
++					err = resolve.REPLChunk(f, nil, predeclared.Has, starlark.Universe.Has)
++				}
++				if err == nil || !strings.Contains(err.Error(), "type annotations are not supported during evaluation") {
++					t.Errorf("got %v, want unsupported annotation error", err)
++				}
++			})
++		}
++	}
++}
++
++func TestAnnotationExpressionsCannotExecute(t *testing.T) {
++	opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
++	f, err := opts.Parse("typed.star", "def f(x: int): pass\n", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	param := f.Stmts[0].(*syntax.DefStmt).Params[0].(*syntax.TypedParam)
++	for _, expr := range []syntax.Expr{param, param.Type} {
++		t.Run("expression", func(t *testing.T) {
++			defer func() {
++				if p := recover(); p != nil {
++					t.Errorf("%T caused a host panic: %v", expr, p)
++				}
++			}()
++			if _, err := starlark.EvalExprOptions(opts, new(starlark.Thread), expr, nil); err == nil || !strings.Contains(err.Error(), "type annotations are not supported during evaluation") {
++				t.Errorf("%T: got %v, want unsupported annotation error", expr, err)
++			}
++		})
++	}
++}
++
++func TestStaticTypeCheckingUnavailable(t *testing.T) {
++	opts := &syntax.FileOptions{Types: syntax.TypesEnabled}
++	_, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "typed.star", "def f() -> int: return \"wrong type\"\nf()\n", nil)
++	if err == nil || !strings.Contains(err.Error(), "static type checking is not supported") {
++		t.Errorf("ExecFileOptions: got %v, want unsupported checking error", err)
++	}
++	if _, err := starlark.EvalOptions(opts, new(starlark.Thread), "typed.star", "1", nil); err == nil || !strings.Contains(err.Error(), "static type checking is not supported") {
++		t.Errorf("EvalOptions: got %v, want unsupported checking error", err)
++	}
++}
++
++func TestParseOnlyUnannotatedExecution(t *testing.T) {
++	opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
++	src := "def f(x=1, *args, **kwargs):\n    return x + args[0] + kwargs[\"y\"]\nresult = f(2, 3, y=4)\n"
++	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "plain.star", src, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got := globals["result"]; got != starlark.MakeInt(9) {
++		t.Errorf("result = %v, want 9", got)
++	}
++}
+diff --git a/syntax/options.go b/syntax/options.go
+index 24b4105cb5580acc3892cef28b0a8f6c7ce2b9b2..fee68a009686154fdd8513e9a44bf10f080d87e2 100644
+--- a/syntax/options.go
++++ b/syntax/options.go
+@@ -33,7 +33,7 @@ type FileOptions struct {
+ 	Recursion bool // disable recursion check for functions in this file
+ 
+ 	// type system
+-	Types TypeMode // controls type annotation parsing and checking
++	Types TypeMode // controls type annotation parsing
+ }
+ 
+ // TypeMode controls how type annotations are handled.
+@@ -43,9 +43,11 @@ const (
+ 	// TypesDisabled rejects type annotation syntax (the default).
+ 	TypesDisabled TypeMode = iota
+ 	// TypesParseOnly parses type annotations but does not check them.
+-	// Useful for documentation and tooling support.
++	// Useful for documentation and tooling support. Annotated programs
++	// cannot be resolved, compiled, or evaluated.
+ 	TypesParseOnly
+-	// TypesEnabled enables full static type checking.
++	// TypesEnabled is reserved for future static type checking.
++	// Parsing accepts annotations, but resolution and evaluation reject this mode.
+ 	TypesEnabled
+ )
+ 

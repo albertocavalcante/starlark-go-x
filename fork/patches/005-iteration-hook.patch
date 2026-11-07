@@ -1,0 +1,177 @@
+From da5a35fe16a6224bf1d4adf4c7cb6957482372e2 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Tue, 3 Feb 2026 11:12:02 -0800
+Subject: [PATCH 5/9] feat: add OnIteration callback for loop coverage
+ instrumentation
+
+Add Thread.OnIteration callback invoked after each for-loop iteration
+decision (ITERJMP). This enables loop coverage collection.
+
+The callback receives:
+- fn: the executing function
+- pc: program counter of the ITERJMP instruction
+- continued: true if loop continues, false if loop exits
+
+This allows tracking:
+- How many times each loop iterates
+- Whether loops execute 0, 1, or N iterations
+- Empty loops (continued=false on first check)
+
+Changes:
+- Thread.OnIteration field in eval.go
+- Callback invocation in interp.go after ITERJMP evaluation
+- Tests for loop iteration counting and empty loops
+
+TODO(upstream): trim verbose comments to match codebase style before proposing.
+---
+ starlark/eval.go      |  7 ++++
+ starlark/eval_test.go | 97 +++++++++++++++++++++++++++++++++++++++++++
+ starlark/interp.go    |  8 +++-
+ 3 files changed, 111 insertions(+), 1 deletion(-)
+
+diff --git a/starlark/eval.go b/starlark/eval.go
+index 749fea55e0b285028acf2029cd434f23e4474104..bf8e95cf60a5f05087fa16e399e69e548db8ee27 100644
+--- a/starlark/eval.go
++++ b/starlark/eval.go
+@@ -79,6 +79,13 @@ type Thread struct {
+ 	// TODO(upstream): trim verbose comments to match codebase style before proposing.
+ 	OnFunctionExit func(fn *Function, result Value)
+ 
++	// OnIteration is called after each for-loop iteration decision, if non-nil.
++	// This hook enables loop coverage collection. It fires for ITERJMP instructions
++	// which control for-loop iteration. The continued parameter indicates whether
++	// the loop continues (true) or exits (false). Use fn.PositionAt(pc) for position.
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	OnIteration func(fn *Function, pc uint32, continued bool)
++
+ 	// Steps a count of abstract computation steps executed
+ 	// by this thread. It is incremented by the interpreter. It may be used
+ 	// as a measure of the approximate cost of Starlark execution, by
+diff --git a/starlark/eval_test.go b/starlark/eval_test.go
+index 0de291e73151cbc6fa35aa2bb1f96b6903f33190..f0fca6cf3ddafbd42b504d2a306a3afa74b8f027 100644
+--- a/starlark/eval_test.go
++++ b/starlark/eval_test.go
+@@ -1567,3 +1567,100 @@ c = identity([1, 2, 3])
+ 
+ 	t.Logf("Captured results: %v", results)
+ }
++
++func TestOnIteration(t *testing.T) {
++	// Test that OnIteration callback is called for for-loop iterations.
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	src := `
++def sum_list(items):
++    total = 0
++    for x in items:
++        total = total + x
++    return total
++
++a = sum_list([1, 2, 3])  # 3 iterations + 1 exit
++b = sum_list([])         # 0 iterations + 1 exit (immediate)
++c = sum_list([10])       # 1 iteration + 1 exit
++`
++	type iterHit struct {
++		line      int32
++		continued bool
++	}
++	var iterations []iterHit
++	var mu sync.Mutex
++
++	thread := &starlark.Thread{
++		Name: "loop-test",
++		OnIteration: func(fn *starlark.Function, pc uint32, continued bool) {
++			pos := fn.PositionAt(pc)
++			mu.Lock()
++			iterations = append(iterations, iterHit{pos.Line, continued})
++			mu.Unlock()
++		},
++	}
++
++	_, err := starlark.ExecFile(thread, "loop.star", src, nil)
++	if err != nil {
++		t.Fatalf("ExecFile failed: %v", err)
++	}
++
++	// Count continued vs exit
++	continueCount, exitCount := 0, 0
++	for _, it := range iterations {
++		if it.continued {
++			continueCount++
++		} else {
++			exitCount++
++		}
++	}
++
++	// sum_list([1,2,3]): 3 continues, 1 exit
++	// sum_list([]): 0 continues, 1 exit
++	// sum_list([10]): 1 continue, 1 exit
++	// Total: 4 continues, 3 exits
++	if continueCount != 4 {
++		t.Errorf("expected 4 loop continues, got %d", continueCount)
++	}
++	if exitCount != 3 {
++		t.Errorf("expected 3 loop exits, got %d", exitCount)
++	}
++
++	t.Logf("OnIteration: %d continues, %d exits, total %d", continueCount, exitCount, len(iterations))
++}
++
++func TestOnIterationEmptyLoop(t *testing.T) {
++	// Test that empty loops still fire OnIteration (with continued=false).
++	// TODO(upstream): trim verbose comments to match codebase style before proposing.
++	src := `
++def empty_loop():
++    for x in []:
++        pass
++    return "done"
++
++result = empty_loop()
++`
++	var fired bool
++	var continued bool
++
++	thread := &starlark.Thread{
++		Name: "empty-loop-test",
++		OnIteration: func(fn *starlark.Function, pc uint32, cont bool) {
++			fired = true
++			continued = cont
++		},
++	}
++
++	_, err := starlark.ExecFile(thread, "empty.star", src, nil)
++	if err != nil {
++		t.Fatalf("ExecFile failed: %v", err)
++	}
++
++	if !fired {
++		t.Error("OnIteration was not called for empty loop")
++	}
++	if continued {
++		t.Error("expected continued=false for empty loop, got true")
++	}
++
++	t.Log("Empty loop correctly fired OnIteration with continued=false")
++}
+diff --git a/starlark/interp.go b/starlark/interp.go
+index 9ab1b7e2b5d11d6ae79562dac449278432fd630a..a77054f2106f04fbea66cab1354652f5bcf930ff 100644
+--- a/starlark/interp.go
++++ b/starlark/interp.go
+@@ -414,11 +414,17 @@ loop:
+ 
+ 		case compile.ITERJMP:
+ 			iter := iterstack[len(iterstack)-1]
+-			if iter.Next(&stack[sp]) {
++			continued := iter.Next(&stack[sp])
++			if continued {
+ 				sp++
+ 			} else {
+ 				pc = arg
+ 			}
++			// Loop coverage hook: report whether for-loop continues or exits.
++			// TODO(upstream): trim verbose comments to match codebase style before proposing.
++			if thread.OnIteration != nil {
++				thread.OnIteration(fn, fr.pc, continued)
++			}
+ 
+ 		case compile.ITERPOP:
+ 			n := len(iterstack) - 1

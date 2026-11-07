@@ -1,0 +1,117 @@
+From 77bc1936f461658b9914f5a21a0b2a62c84a96ca Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <alberto@cavalcante.uk>
+Date: Sat, 7 Nov 2026 00:34:02 -0300
+Subject: [PATCH 8/9] fix(syntax): keep lambda colons out of type annotations
+ (#3)
+
+Keep lambda body separators separate from def-only type annotations so
+existing lambda syntax remains valid when annotation parsing is enabled.
+
+Fail-first grammar regressions, canonical tests, consumer coverage checks,
+and independent final-head review validate the focused parser change.
+
+Squashed from:
+- 95e88d2ebcb432239d94088665fcd016bf30faf9
+---
+ syntax/annotation_lambda_test.go | 35 ++++++++++++++++++++++++++++++++
+ syntax/parse.go                  | 11 +++++-----
+ 2 files changed, 41 insertions(+), 5 deletions(-)
+ create mode 100644 syntax/annotation_lambda_test.go
+
+diff --git a/syntax/annotation_lambda_test.go b/syntax/annotation_lambda_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a91240c9d3b6da092735e3a11e7c55cebea7161
+--- /dev/null
++++ b/syntax/annotation_lambda_test.go
+@@ -0,0 +1,35 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package syntax_test
++
++import (
++	"testing"
++
++	"go.starlark.net/syntax"
++)
++
++func TestAnnotationModeLambdas(t *testing.T) {
++	for _, mode := range []syntax.TypeMode{syntax.TypesDisabled, syntax.TypesParseOnly} {
++		opts := &syntax.FileOptions{Types: mode}
++		for _, src := range []string{
++			"lambda: 1",
++			"lambda x: x",
++			"lambda x, y: x + y",
++			"lambda x=1: x",
++			"lambda *args: args",
++			"lambda **kwargs: kwargs",
++			"lambda x, *, y: x + y",
++			"lambda x: lambda y: x + y",
++		} {
++			if _, err := opts.ParseExpr("lambda.star", src, 0); err != nil {
++				t.Errorf("mode %d, %s: %v", mode, src, err)
++			}
++		}
++	}
++	opts := &syntax.FileOptions{Types: syntax.TypesParseOnly}
++	if _, err := opts.Parse("lambda.star", "def f(x: int):\n    return lambda y: y\n", 0); err != nil {
++		t.Errorf("lambda in annotated function: %v", err)
++	}
++}
+diff --git a/syntax/parse.go b/syntax/parse.go
+index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff840463a70 100644
+--- a/syntax/parse.go
++++ b/syntax/parse.go
+@@ -185,7 +185,7 @@ func (p *parser) parseDefStmt() Stmt {
+ 	defpos := p.nextToken() // consume DEF
+ 	id := p.parseIdent()
+ 	lparen := p.consume(LPAREN)
+-	params := p.parseParams()
++	params := p.parseParams(true)
+ 	rparen := p.consume(RPAREN)
+ 
+ 	// Parse optional return type annotation: -> type
+@@ -466,13 +466,14 @@ func (p *parser) consume(t Token) Position {
+ //	| STARSTAR IDENT
+ //
+ // parseParams parses a parameter list.  The resulting expressions are of the form:
++// Type annotations are permitted only in def parameter lists, not lambdas.
+ //
+ //	*Ident                                          x
+ //	*Binary{Op: EQ, X: *Ident, Y: Expr}             x=y
+ //	*Unary{Op: STAR}                                *
+ //	*Unary{Op: STAR, X: *Ident}                     *args
+ //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
+-func (p *parser) parseParams() []Expr {
++func (p *parser) parseParams(allowTypes bool) []Expr {
+ 	var params []Expr
+ 	for p.tok != RPAREN && p.tok != COLON && p.tok != ARROW && p.tok != EOF {
+ 		if len(params) > 0 {
+@@ -490,7 +491,7 @@ func (p *parser) parseParams() []Expr {
+ 			if op == STARSTAR || p.tok == IDENT {
+ 				id := p.parseIdent()
+ 				// Check for type annotation on *args or **kwargs
+-				if p.tok == COLON && p.options.Types != TypesDisabled {
++				if p.tok == COLON && allowTypes && p.options.Types != TypesDisabled {
+ 					colonPos := p.nextToken() // consume COLON
+ 					typeExpr := p.parseTypeExpr()
+ 					x = &TypedParam{
+@@ -517,7 +518,7 @@ func (p *parser) parseParams() []Expr {
+ 		id := p.parseIdent()
+ 
+ 		// Check for type annotation
+-		if p.tok == COLON && p.options.Types != TypesDisabled {
++		if p.tok == COLON && allowTypes && p.options.Types != TypesDisabled {
+ 			colonPos := p.nextToken() // consume COLON
+ 			typeExpr := p.parseTypeExpr()
+ 
+@@ -639,7 +640,7 @@ func (p *parser) parseLambda(allowCond bool) Expr {
+ 	lambda := p.nextToken()
+ 	var params []Expr
+ 	if p.tok != COLON {
+-		params = p.parseParams()
++		params = p.parseParams(false)
+ 	}
+ 	p.consume(COLON)
+ 
