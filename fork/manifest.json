@@ -230,12 +230,26 @@
       "reason": "Route Linux tests, archive recovery and upstream drift through Runmux while retaining explicit native macOS and Windows cells.",
       "dependencies": [
         "maintenance-ci",
-        "archive-recovery"
+        "archive-recovery",
+        "upstream-drift"
       ],
       "tests": [
-        "actionlint .github/workflows/tests.yml"
+        "actionlint .github/workflows/tests.yml .github/workflows/recovery.yml .github/workflows/upstream.yml"
       ],
       "upstream_disposition": "independent fork API/maintenance"
+    },
+    {
+      "id": "fixture-newlines",
+      "file": "018-fixture-newlines.patch",
+      "sha256": "a532682f6cfac29d6cbb7cbcfcabdae55aa5b2d44234482823f6edde7bf3e9ec",
+      "reason": "Read LF and CRLF chunked fixtures on every host, independent of Git checkout newline settings.",
+      "dependencies": [
+
+      ],
+      "tests": [
+        "go test ./internal/chunkedfile -run TestReadNewlines"
+      ],
+      "upstream_disposition": "test harness portability fix"
     }
   ]
 }
