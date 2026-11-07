@@ -153,6 +153,20 @@
         "go test ./starlark -run TestBranchHookBackedgeCancellation"
       ],
       "upstream_disposition": "fork integration regression"
+    },
+    {
+      "id": "upstream-drift",
+      "file": "012-upstream-drift.patch",
+      "sha256": "17c121a0771333199b430d3033b36287e9dd4b60e8bb7890ab889e6c219edd95",
+      "reason": "Report upstream drift weekly or manually without granting publishing credentials.",
+      "dependencies": [
+        "maintenance-ci"
+      ],
+      "tests": [
+        "actionlint .github/workflows/upstream.yml",
+        "gh workflow run upstream.yml --ref trunk"
+      ],
+      "upstream_disposition": "fork maintenance policy"
     }
   ]
 }

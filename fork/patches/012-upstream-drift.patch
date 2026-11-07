@@ -1,0 +1,48 @@
+diff --git a/.github/workflows/upstream.yml b/.github/workflows/upstream.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..71223dec71315a71cdbdc347027a634549d40f5d
+--- /dev/null
++++ b/.github/workflows/upstream.yml
+@@ -0,0 +1,42 @@
++name: Upstream drift
++on:
++  schedule:
++    - cron: '23 8 * * 1'
++  workflow_dispatch:
++permissions:
++  contents: read
++concurrency:
++  group: ${{ github.workflow }}-${{ github.ref }}
++  cancel-in-progress: true
++jobs:
++  compare:
++    runs-on: ubuntu-24.04
++    permissions:
++      contents: read
++    timeout-minutes: 5
++    steps:
++      - name: Checkout published manifest
++        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          persist-credentials: false
++      - name: Compare selected upstream with Google master
++        env:
++          GH_TOKEN: ${{ github.token }}
++        shell: bash
++        run: |
++          selected=$(jq -er '.upstream.commit | select(test("^[0-9a-f]{40}$"))' fork/manifest.json)
++          observed=$(gh api repos/google/starlark-go/git/ref/heads/master --jq .object.sha)
++          if [[ ! "$observed" =~ ^[0-9a-f]{40}$ ]]; then
++            echo '::error::Google returned an invalid upstream commit identity'
++            exit 1
++          fi
++          {
++            printf 'Selected upstream: %s\n\n' "$selected"
++            printf 'Observed Google master: %s\n\n' "$observed"
++            printf '[Review upstream changes](https://github.com/google/starlark-go/compare/%s...%s)\n' "$selected" "$observed"
++          } >>"$GITHUB_STEP_SUMMARY"
++          if [[ "$selected" != "$observed" ]]; then
++            echo '::error::Upstream changed; replay and review the fork patches before publishing an update'
++            exit 1
++          fi
++          echo 'The recorded upstream base matches the observed Google master.'

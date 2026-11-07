@@ -94,8 +94,11 @@ durably; expiring Actions artifacts are not the recovery mechanism.
 
 ## Automation boundary
 
-The initial process is manual. A weekly/manual read-only drift detector can report
-Google's observed head against `manifest.json`; detection is not publication.
+The import process is manual. The **Upstream drift** workflow runs weekly and on
+manual dispatch. It compares Google's observed `master` with `manifest.json`, adds
+a comparison link to the run summary, and fails visibly when they differ. A failed
+API request or invalid identity also fails; it cannot report freshness. The job
+has read-only permissions and creates no branches or PRs. Detection is not publication.
 Automatic conflict resolution and privileged publishing are outside this command.
 Before adding publishing, bind trusted workflow/run/attempt/base/head/manifest/tree
 and artifact identities, reject mismatches, and ensure candidate code never sees
