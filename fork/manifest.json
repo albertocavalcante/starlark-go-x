@@ -180,6 +180,19 @@
         "compile and run fork/USAGE.md example in a fresh module with GOWORK=off"
       ],
       "upstream_disposition": "fork documentation"
+    },
+    {
+      "id": "hook-panic-contracts",
+      "file": "014-hook-panic-contracts.patch",
+      "sha256": "fe6c108c8cb012fe34188b694ec9cc2de063b5dec1bc8d1dc79d44c819f2012b",
+      "reason": "Prove nested iterator and frame cleanup after instruction, branch, iteration and entry callback panics.",
+      "dependencies": [
+        "exit-hook-cleanup"
+      ],
+      "tests": [
+        "go test ./starlark -run TestHookPanicReleasesNestedIterators"
+      ],
+      "upstream_disposition": "fork hook regression"
     }
   ]
 }
