@@ -91,7 +91,7 @@ func gitEnv() []string {
 			env = append(env, entry)
 		}
 	}
-	return append(env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
+	return append(env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=file", "GIT_NO_LAZY_FETCH=1")
 }
 
 func git(repo string, input []byte, args ...string) ([]byte, error) {
@@ -229,6 +229,26 @@ func verify(repo, revision string) (string, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "prepare" {
+		flags := flag.NewFlagSet("prepare", flag.ExitOnError)
+		repo := flags.String("repo", ".", "local source repository (unchanged)")
+		revision := flags.String("revision", "HEAD", "committed fork revision")
+		upstream := flags.String("upstream", "", "full new upstream SHA with a locally verified archive tag")
+		output := flags.String("output", "", "new output directory outside the source repository")
+		flags.Parse(os.Args[2:])
+		if flags.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "unexpected positional arguments")
+			os.Exit(2)
+		}
+		report, err := prepare(*repo, *revision, *upstream, *output)
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	repo := flag.String("repo", ".", "local source repository (unchanged by verification)")
 	revision := flag.String("revision", "HEAD", "committed revision to reconstruct; dirty edits are excluded")
 	flag.Parse()

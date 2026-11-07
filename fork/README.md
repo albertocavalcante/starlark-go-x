@@ -36,6 +36,45 @@ publishing credentials; a future publisher must use its own trusted verifier.
 
 ## Update upstream
 
+### Prepare an update locally
+
+After fetching and independently verifying a new Google commit and its immutable
+fork archive tag, run:
+
+```sh
+go run ./fork prepare -revision origin/trunk -upstream FULL_UPSTREAM_SHA -output /path/to/new-update-directory
+```
+
+The output directory's parent must exist. The directory must be new and outside
+the source checkout and its Git metadata, including a shared worktree Git dir.
+Only committed inputs are used; dirty source work is preserved. Git network
+transports and lazy fetching are disabled. Fetch/archive creation remain explicit
+maintainer steps before preparation.
+
+The command first verifies the captured fork revision, seeds the old patch blobs,
+and replays onto the selected forward upstream commit with three-way assistance
+and conflict reuse disabled. On success, `repo/` contains a single-parent snapshot
+whose parent is the captured fork revision. The refreshed queue preserves patch
+IDs and rationale; generated payloads are full-index binary-capable Git diffs.
+Disposable replay commits identify working checkpoints, not copyright ownership
+or published feature history. Source notices and FORK_NOTICE remain authoritative.
+
+`report.json` records captured inputs, status, candidate and verified tree;
+`range.diff` compares the reconstructed old and new replay histories. A matching
+upstream base returns `noop` without creating output. A conflict returns nonzero
+and retains the patch ID, index and report for inspection. A patch made empty by
+upstream stops for an equivalence/retirement decision. Reusing an existing output,
+including an interrupted workspace, fails rather than overwriting evidence.
+
+Preparation reruns exact reconstruction without conflict assistance and checks
+that the selected local source ref has not advanced. It does not establish remote
+freshness, runtime compatibility, consumer readiness, review approval or permission
+to publish. Inspect conflicts manually, then refresh and reverify the resulting
+queue; this command does not resume conflicted outputs automatically. Remove
+disposable outputs after saving needed evidence and completing the update.
+
+### Review and publish
+
 Keep published `trunk` append-only through squash PRs. Original upstream commits
 are preserved by immutable `upstream/<full-SHA>` tags, protected against updates
 and deletion without bypass actors. Existing consumer pins stay reachable.
