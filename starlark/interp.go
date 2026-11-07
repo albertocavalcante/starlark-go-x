@@ -104,19 +104,18 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
-		// Function coverage hook: notify function exit.
-		// result is captured by reference and will have its final value.
-		// TODO(upstream): trim verbose comments to match codebase style before proposing.
-		if thread.OnFunctionExit != nil {
-			thread.OnFunctionExit(fn, result)
-		}
-
 		// ITERPOP the rest of the iterator stack.
 		for _, iter := range iterstack {
 			iter.Done()
 		}
 
 		fr.locals = nil
+	}()
+	// Keep cleanup independent of a panic in the exit hook.
+	defer func() {
+		if thread.OnFunctionExit != nil {
+			thread.OnFunctionExit(fn, result)
+		}
 	}()
 
 	sp := 0
