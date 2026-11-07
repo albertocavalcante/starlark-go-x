@@ -1,4 +1,5 @@
 // Copyright 2017 The Bazel Authors. All rights reserved.
+// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -139,6 +140,9 @@ func File(file *syntax.File, isPredeclared, isUniversal func(name string) bool) 
 // REPLChunk is a generalization of the File function that supports a
 // non-empty initial global block, as occurs in a REPL.
 func REPLChunk(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool) error {
+	if file.Options.Types == syntax.TypesEnabled {
+		return ErrorList{{syntax.MakePosition(&file.Path, 1, 1), "static type checking is not supported"}}
+	}
 	r := newResolver(file.Options, isGlobal, isPredeclared, isUniversal)
 	r.stmts(file.Stmts)
 
@@ -173,6 +177,9 @@ func Expr(expr syntax.Expr, isPredeclared, isUniversal func(name string) bool) (
 //
 // The isPredeclared and isUniversal predicates behave as for the File function
 func ExprOptions(opts *syntax.FileOptions, expr syntax.Expr, isPredeclared, isUniversal func(name string) bool) ([]*Binding, error) {
+	if opts.Types == syntax.TypesEnabled {
+		return nil, ErrorList{{syntax.Start(expr), "static type checking is not supported"}}
+	}
 	r := newResolver(opts, nil, isPredeclared, isUniversal)
 	r.expr(expr)
 	r.env.resolveLocalUses()
@@ -528,6 +535,10 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		r.assign(stmt.LHS, isAugmented)
 
 	case *syntax.DefStmt:
+		if stmt.ReturnType != nil {
+			r.errorf(stmt.Arrow, "type annotations are not supported during evaluation")
+			return
+		}
 		r.bind(stmt.Name)
 		fn := &Function{
 			Name:   stmt.Name.Name,
@@ -648,6 +659,9 @@ func (r *resolver) assign(lhs syntax.Expr, isAugmented bool) {
 
 func (r *resolver) expr(e syntax.Expr) {
 	switch e := e.(type) {
+	case *syntax.TypedParam, *syntax.TypeExpr:
+		r.errorf(syntax.Start(e), "type annotations are not supported during evaluation")
+
 	case *syntax.Ident:
 		r.use(e)
 
@@ -819,6 +833,13 @@ func (r *resolver) expr(e syntax.Expr) {
 func (r *resolver) function(function *Function, pos syntax.Position) {
 	// Resolve defaults in enclosing environment.
 	for _, param := range function.Params {
+		if unary, ok := param.(*syntax.UnaryExpr); ok {
+			param = unary.X
+		}
+		if typed, ok := param.(*syntax.TypedParam); ok {
+			r.errorf(typed.Colon, "type annotations are not supported during evaluation")
+			return
+		}
 		if binary, ok := param.(*syntax.BinaryExpr); ok {
 			r.expr(binary.Y)
 		}

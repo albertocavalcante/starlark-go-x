@@ -33,7 +33,7 @@ type FileOptions struct {
 	Recursion bool // disable recursion check for functions in this file
 
 	// type system
-	Types TypeMode // controls type annotation parsing and checking
+	Types TypeMode // controls type annotation parsing
 }
 
 // TypeMode controls how type annotations are handled.
@@ -43,9 +43,11 @@ const (
 	// TypesDisabled rejects type annotation syntax (the default).
 	TypesDisabled TypeMode = iota
 	// TypesParseOnly parses type annotations but does not check them.
-	// Useful for documentation and tooling support.
+	// Useful for documentation and tooling support. Annotated programs
+	// cannot be resolved, compiled, or evaluated.
 	TypesParseOnly
-	// TypesEnabled enables full static type checking.
+	// TypesEnabled is reserved for future static type checking.
+	// Parsing accepts annotations, but resolution and evaluation reject this mode.
 	TypesEnabled
 )
 
