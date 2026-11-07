@@ -154,3 +154,12 @@ Automatic conflict resolution and privileged publishing are outside this command
 Before adding publishing, bind trusted workflow/run/attempt/base/head/manifest/tree
 and artifact identities, reject mismatches, and ensure candidate code never sees
 write credentials. Keep one temporary update branch rather than a branch backlog.
+
+## Measure hook costs
+
+The isolated [benchmark harness](bench/README.md) pins a common upstream base,
+fork runtime snapshot, exact toolchain and benchstat. It records ten alternating
+samples for fixed parsing/evaluation workloads and separates nil/active hooks.
+Run it explicitly on a quiet host; busy-machine results do not establish a stable
+performance budget. Its development dependencies are excluded from the library
+module by the nested-module boundary.
