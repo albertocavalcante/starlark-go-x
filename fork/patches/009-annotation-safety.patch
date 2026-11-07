@@ -1,18 +1,8 @@
-From 0dd0620bd914ecf81480ad1de1bf5c9fcb48f1dc Mon Sep 17 00:00:00 2001
-From: Alberto Cavalcante <alberto@cavalcante.uk>
-Date: Sat, 7 Nov 2026 00:37:22 -0300
-Subject: [PATCH 9/9] fix(resolve): reject unsupported typed execution safely
- (#4)
+From 4896f8aa3241b93d9b761c93e6ceb659b1a1da29 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 19:21:59 -0800
+Subject: [PATCH] fix: reject unsupported annotation execution safely
 
-Return ordinary errors before unsupported annotation ASTs reach resolver
-and compiler assumptions that can panic the host. Reserve static checking
-mode and report its unavailability explicitly while preserving parsing.
-
-Fail-first regressions, canonical and consumer tests, upstream replay,
-and independent final-head review validate the execution boundary.
-
-Squashed from:
-- 4969b3fd6ccf38f9d0c1b7b6e2fac833d1282f0c
 ---
  resolve/resolve.go                    |  21 ++++++
  starlark/annotation_execution_test.go | 104 ++++++++++++++++++++++++++
@@ -21,7 +11,7 @@ Squashed from:
  create mode 100644 starlark/annotation_execution_test.go
 
 diff --git a/resolve/resolve.go b/resolve/resolve.go
-index c2ca7eb554c3ba79a62fe0a70ec28e42ca189128..47aa3a4d0acd9efcdb87e45e6045d05ead24d1b0 100644
+index 4d046b3580752664b3e8b2c1cd9b594f6be5a3b7..962e6a5692ca2a07eac171e301d1927a5062a461 100644
 --- a/resolve/resolve.go
 +++ b/resolve/resolve.go
 @@ -1,4 +1,5 @@
@@ -222,3 +212,6 @@ index 24b4105cb5580acc3892cef28b0a8f6c7ce2b9b2..fee68a009686154fdd8513e9a44bf10f
  	TypesEnabled
  )
  
+-- 
+2.56.0
+

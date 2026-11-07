@@ -1,17 +1,8 @@
-From 77bc1936f461658b9914f5a21a0b2a62c84a96ca Mon Sep 17 00:00:00 2001
-From: Alberto Cavalcante <alberto@cavalcante.uk>
-Date: Sat, 7 Nov 2026 00:34:02 -0300
-Subject: [PATCH 8/9] fix(syntax): keep lambda colons out of type annotations
- (#3)
+From 0c5ad6996dd3de7a8739a554fd114f24f3c4b90a Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 19:18:01 -0800
+Subject: [PATCH] fix(syntax): preserve lambda grammar in annotation mode
 
-Keep lambda body separators separate from def-only type annotations so
-existing lambda syntax remains valid when annotation parsing is enabled.
-
-Fail-first grammar regressions, canonical tests, consumer coverage checks,
-and independent final-head review validate the focused parser change.
-
-Squashed from:
-- 95e88d2ebcb432239d94088665fcd016bf30faf9
 ---
  syntax/annotation_lambda_test.go | 35 ++++++++++++++++++++++++++++++++
  syntax/parse.go                  | 11 +++++-----
@@ -60,10 +51,10 @@ index 0000000000000000000000000000000000000000..3a91240c9d3b6da092735e3a11e7c55c
 +	}
 +}
 diff --git a/syntax/parse.go b/syntax/parse.go
-index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff840463a70 100644
+index 0d42acc79390049d5da39fb38d884ddd2e74e3f1..49a4fe17fae5788fa53e2056f31d4c81da7eda22 100644
 --- a/syntax/parse.go
 +++ b/syntax/parse.go
-@@ -185,7 +185,7 @@ func (p *parser) parseDefStmt() Stmt {
+@@ -206,7 +206,7 @@ func (p *parser) parseDefStmt() Stmt {
  	defpos := p.nextToken() // consume DEF
  	id := p.parseIdent()
  	lparen := p.consume(LPAREN)
@@ -72,7 +63,7 @@ index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff8
  	rparen := p.consume(RPAREN)
  
  	// Parse optional return type annotation: -> type
-@@ -466,13 +466,14 @@ func (p *parser) consume(t Token) Position {
+@@ -490,13 +490,14 @@ func (p *parser) consume(t Token) Position {
  //	| STARSTAR IDENT
  //
  // parseParams parses a parameter list.  The resulting expressions are of the form:
@@ -88,7 +79,7 @@ index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff8
  	var params []Expr
  	for p.tok != RPAREN && p.tok != COLON && p.tok != ARROW && p.tok != EOF {
  		if len(params) > 0 {
-@@ -490,7 +491,7 @@ func (p *parser) parseParams() []Expr {
+@@ -514,7 +515,7 @@ func (p *parser) parseParams() []Expr {
  			if op == STARSTAR || p.tok == IDENT {
  				id := p.parseIdent()
  				// Check for type annotation on *args or **kwargs
@@ -97,7 +88,7 @@ index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff8
  					colonPos := p.nextToken() // consume COLON
  					typeExpr := p.parseTypeExpr()
  					x = &TypedParam{
-@@ -517,7 +518,7 @@ func (p *parser) parseParams() []Expr {
+@@ -541,7 +542,7 @@ func (p *parser) parseParams() []Expr {
  		id := p.parseIdent()
  
  		// Check for type annotation
@@ -106,7 +97,7 @@ index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff8
  			colonPos := p.nextToken() // consume COLON
  			typeExpr := p.parseTypeExpr()
  
-@@ -639,7 +640,7 @@ func (p *parser) parseLambda(allowCond bool) Expr {
+@@ -669,7 +670,7 @@ func (p *parser) parseLambda(allowCond bool) Expr {
  	lambda := p.nextToken()
  	var params []Expr
  	if p.tok != COLON {
@@ -115,3 +106,6 @@ index 26fbc7f28c58b41bc379831bc3de6be9a64ed66e..096cd09ff5d1936b5303725613d3dff8
  	}
  	p.consume(COLON)
  
+-- 
+2.56.0
+

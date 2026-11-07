@@ -12,7 +12,10 @@ package syntax
 // package.  Verify that error positions are correct using the
 // chunkedfile mechanism.
 
-import "log"
+import (
+	"log"
+	"slices"
+)
 
 // Enable this flag to print the token stream and log.Fatal on the first error.
 const debug = false
@@ -28,7 +31,7 @@ const (
 //
 // Deprecated: use [FileOptions.Parse] instead,
 // because this function relies on legacy global variables.
-func Parse(filename string, src interface{}, mode Mode) (f *File, err error) {
+func Parse(filename string, src any, mode Mode) (f *File, err error) {
 	return LegacyFileOptions().Parse(filename, src, mode)
 }
 
@@ -39,7 +42,7 @@ func Parse(filename string, src interface{}, mode Mode) (f *File, err error) {
 // The type of the argument for the src parameter must be string,
 // []byte, io.Reader, or FilePortion.
 // If src == nil, Parse parses the file specified by filename.
-func (opts *FileOptions) Parse(filename string, src interface{}, mode Mode) (f *File, err error) {
+func (opts *FileOptions) Parse(filename string, src any, mode Mode) (f *File, err error) {
 	in, err := newScanner(filename, src, mode&RetainComments != 0)
 	if err != nil {
 		return nil, err
@@ -103,14 +106,14 @@ func (opts *FileOptions) ParseCompoundStmt(filename string, readline func() ([]b
 //
 // Deprecated: use [FileOptions.ParseExpr] instead,
 // because this function relies on legacy global variables.
-func ParseExpr(filename string, src interface{}, mode Mode) (expr Expr, err error) {
+func ParseExpr(filename string, src any, mode Mode) (expr Expr, err error) {
 	return LegacyFileOptions().ParseExpr(filename, src, mode)
 }
 
 // ParseExpr parses a Starlark expression.
 // A comma-separated list of expressions is parsed as a tuple.
 // See Parse for explanation of parameters.
-func (opts *FileOptions) ParseExpr(filename string, src interface{}, mode Mode) (expr Expr, err error) {
+func (opts *FileOptions) ParseExpr(filename string, src any, mode Mode) (expr Expr, err error) {
 	in, err := newScanner(filename, src, mode&RetainComments != 0)
 	if err != nil {
 		return nil, err
@@ -141,6 +144,24 @@ type parser struct {
 	in      *scanner
 	tok     Token
 	tokval  tokenValue
+	depth   int
+}
+
+// enter increments the depth and checks the recursion limit.
+// It should be paired with a deferred call to [parser.leave].
+//
+// Every cycle in the parser's static call graph must include at
+// least one function that uses enter+leave to break cycles.
+// TestParserCallGraphCycles statically verifies this property.
+func (p *parser) enter() {
+	p.depth++
+	if p.depth > 1000 {
+		p.in.errorf(p.in.pos, "excessive nesting")
+	}
+}
+
+func (p *parser) leave() {
+	p.depth--
 }
 
 // nextToken advances the scanner and returns the position of the
@@ -421,6 +442,9 @@ func (p *parser) parseLoadStmt() *LoadStmt {
 // suite is typically what follows a COLON (e.g. after DEF or FOR).
 // suite = simple_stmt | NEWLINE INDENT stmt+ OUTDENT
 func (p *parser) parseSuite() []Stmt {
+	p.enter()
+	defer p.leave()
+
 	if p.tok == NEWLINE {
 		p.nextToken() // consume NEWLINE
 		p.consume(INDENT)
@@ -604,6 +628,9 @@ func (p *parser) parseExprs(exprs []Expr, allowTrailingComma bool) []Expr {
 
 // parseTest parses a 'test', a single-component expression.
 func (p *parser) parseTest() Expr {
+	p.enter()
+	defer p.leave()
+
 	if p.tok == LAMBDA {
 		return p.parseLambda(true)
 	}
@@ -637,6 +664,9 @@ func (p *parser) parseTestNoCond() Expr {
 // parseLambda parses a lambda expression.
 // The allowCond flag allows the body to be an 'a if b else c' conditional.
 func (p *parser) parseLambda(allowCond bool) Expr {
+	p.enter()
+	defer p.leave()
+
 	lambda := p.nextToken()
 	var params []Expr
 	if p.tok != COLON {
@@ -659,6 +689,9 @@ func (p *parser) parseLambda(allowCond bool) Expr {
 }
 
 func (p *parser) parseTestPrec(prec int) Expr {
+	p.enter()
+	defer p.leave()
+
 	if prec >= len(preclevels) {
 		return p.parsePrimaryWithSuffix()
 	}
@@ -872,12 +905,15 @@ func (p *parser) parseArgs() []Expr {
 //	| '(' ...                    // tuple or parenthesized expression
 //	| ('-'|'+'|'~') primary_with_suffix
 func (p *parser) parsePrimary() Expr {
+	p.enter()
+	defer p.leave()
+
 	switch p.tok {
 	case IDENT:
 		return p.parseIdent()
 
 	case INT, FLOAT, STRING, BYTES:
-		var val interface{}
+		var val any
 		tok := p.tok
 		switch tok {
 		case INT:
@@ -1109,9 +1145,7 @@ func (p *parser) assignComments(n Node) {
 
 	// Assign suffix comments to syntax immediately before.
 	suffix := p.in.suffixComments
-	for i := len(post) - 1; i >= 0; i-- {
-		x := post[i]
-
+	for _, x := range slices.Backward(post) {
 		// Do not assign suffix comments to file
 		switch x.(type) {
 		case *File:

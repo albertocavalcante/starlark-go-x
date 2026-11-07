@@ -1,7 +1,7 @@
-From 6e0fa653ca7f80ec577a2fbf7f37abfead916d03 Mon Sep 17 00:00:00 2001
+From 907150d4bf500033d8c5ea5557a331893ba1a364 Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
 Date: Tue, 3 Feb 2026 11:03:05 -0800
-Subject: [PATCH 3/9] feat: add OnBranch callback for branch coverage
+Subject: [PATCH] feat: add OnBranch callback for branch coverage
  instrumentation
 
 Add Thread.OnBranch callback invoked after each conditional branch (CJMP).
@@ -27,10 +27,10 @@ TODO(upstream): trim verbose comments to match codebase style before proposing.
  3 files changed, 127 insertions(+), 1 deletion(-)
 
 diff --git a/starlark/eval.go b/starlark/eval.go
-index 8a67cbf16a7ca138a03b8632775f01b33c665703..112d955dc8d09996a85fe6cc73c8564173f92687 100644
+index 5ada070c9ee29fc4851fa0fd922511c5f85b2f10..0aba29056519d0ee8fb12ac6c230a32712982628 100644
 --- a/starlark/eval.go
 +++ b/starlark/eval.go
-@@ -59,6 +59,14 @@ type Thread struct {
+@@ -58,6 +58,14 @@ type Thread struct {
  	// TODO(upstream): trim verbose comments to match codebase style before proposing.
  	OnExec func(fn *Function, pc uint32)
  
@@ -46,10 +46,10 @@ index 8a67cbf16a7ca138a03b8632775f01b33c665703..112d955dc8d09996a85fe6cc73c85641
  	// by this thread. It is incremented by the interpreter. It may be used
  	// as a measure of the approximate cost of Starlark execution, by
 diff --git a/starlark/eval_test.go b/starlark/eval_test.go
-index ac70ca913da1a1e4edf27fc3f2902928c6bcab1e..7f871c366203979101011e45f36f8154a998d1b8 100644
+index 841c47ccae4ee7014d8cc29499961926490b5ab7..9fb684e2ef1d0597f4cf242e3409d4306d699a5b 100644
 --- a/starlark/eval_test.go
 +++ b/starlark/eval_test.go
-@@ -1323,3 +1323,113 @@ z = add(x, y)
+@@ -1355,3 +1355,113 @@ z = add(x, y)
  
  	t.Logf("Line coverage: %v", coverage)
  }
@@ -164,10 +164,10 @@ index ac70ca913da1a1e4edf27fc3f2902928c6bcab1e..7f871c366203979101011e45f36f8154
 +	t.Logf("OnBranch fired %d times for short-circuit operators", branchCount)
 +}
 diff --git a/starlark/interp.go b/starlark/interp.go
-index 4fe8b8ee51b6db20e73d72f4c08b522697cb6447..517b6a52fa060e2df926ffcbe963ff417c72f157 100644
+index e99e74bc3f6189844ee1d6807fd72f45234e608a..e2b9b837dc21b90f7ac4dd32e4ea34c26eaf0353 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
-@@ -527,10 +527,18 @@ loop:
+@@ -537,7 +537,9 @@ loop:
  			}
  
  		case compile.CJMP:
@@ -175,6 +175,10 @@ index 4fe8b8ee51b6db20e73d72f4c08b522697cb6447..517b6a52fa060e2df926ffcbe963ff41
 +			cond := stack[sp-1].Truth()
 +			taken := bool(cond)
 +			if taken {
+ 				// On back edge, check cancellation and increment step count.
+ 				if arg < pc && thread.checkSteps() {
+ 					if err = thread.checkStepsSlow(); err != nil {
+@@ -547,6 +549,12 @@ loop:
  				pc = arg
  			}
  			sp--
@@ -187,3 +191,6 @@ index 4fe8b8ee51b6db20e73d72f4c08b522697cb6447..517b6a52fa060e2df926ffcbe963ff41
  
  		case compile.CONSTANT:
  			stack[sp] = fn.module.constants[arg]
+-- 
+2.56.0
+

@@ -3,14 +3,14 @@
   "upstream": {
     "url": "https://github.com/google/starlark-go.git",
     "branch": "master",
-    "commit": "3fee463870c9e2f24e391952f5cf5e95463357b4",
-    "archive_ref": "refs/tags/upstream/3fee463870c9e2f24e391952f5cf5e95463357b4"
+    "commit": "4f4267fb140d1e8b91c9bce55cee2f809e8840dd",
+    "archive_ref": "refs/tags/upstream/4f4267fb140d1e8b91c9bce55cee2f809e8840dd"
   },
   "patches": [
     {
       "id": "execution-hook",
       "file": "001-execution-hook.patch",
-      "sha256": "28668b18b959149a3d1d933827e964e61f1993bd9cec8c01dbdde6363c578b7f",
+      "sha256": "2e14bc2b66c4d0450385ab653641acca7d38d0e6a265c23e2c4ab74a54ed310c",
       "reason": "Instruction callbacks and PositionAt for source-mapped instrumentation.",
       "dependencies": [],
       "tests": [
@@ -21,7 +21,7 @@
     {
       "id": "annotation-parser",
       "file": "002-annotation-parser.patch",
-      "sha256": "9f49107ce7c99e1c0f105634bbea2498f5cc3f21e5ce4e81925adeb10c910ef2",
+      "sha256": "343baa80465f4e6d1bbae53bc485d088bf2d19cede86e55ed50e55da75d0b4b6",
       "reason": "Inspect annotations in an explicitly enabled parser dialect.",
       "dependencies": [
         "execution-hook"
@@ -34,7 +34,7 @@
     {
       "id": "branch-hook",
       "file": "003-branch-hook.patch",
-      "sha256": "ab57eeecec62a7d0b6f7e737e3e3db86a81358a6fa1da1a04bafe6d3f327a377",
+      "sha256": "45ffd2974025c6e00a413b9318a76c81174de1a23c815a5fe36481a0d97a66a4",
       "reason": "Report conditional jump outcomes for coverage.",
       "dependencies": [
         "execution-hook",
@@ -48,7 +48,7 @@
     {
       "id": "function-hooks",
       "file": "004-function-hooks.patch",
-      "sha256": "1e77e1395010dd40d6fdb1ba98df16b4b9001909178c2273071f99525788288d",
+      "sha256": "41178216acba3b4ab1a1181af083dd0168992c3c4a3346875fe4d4583cf80feb",
       "reason": "Report function entry and exit for coverage.",
       "dependencies": [
         "branch-hook"
@@ -61,7 +61,7 @@
     {
       "id": "iteration-hook",
       "file": "005-iteration-hook.patch",
-      "sha256": "24ec86dfe5dd199d07e191272eb48f76f829670e921d8e9f39d39df5c41f21ea",
+      "sha256": "8a5d409314b44de7ade0ba589dc81f696178d670cec47c4699c9fab3d477aa98",
       "reason": "Report loop iteration events for coverage.",
       "dependencies": [
         "function-hooks"
@@ -74,7 +74,7 @@
     {
       "id": "attribution",
       "file": "006-attribution.patch",
-      "sha256": "1d216e989fd1a85fb43f914c7642ebabb2bcc060950142b207b08fcaf62e78e3",
+      "sha256": "b45d5398ea2575b2102afbebdce5d689c597f2d5fd2f47f50cb7b608c4c0970e",
       "reason": "Preserve upstream notices and attribute Alberto Cavalcante additions.",
       "dependencies": [
         "iteration-hook"
@@ -87,7 +87,7 @@
     {
       "id": "exit-hook-cleanup",
       "file": "007-exit-hook-cleanup.patch",
-      "sha256": "c1c5cd40804a9082d1a7757179c5fa77fb5e18f80ed3776f576c45d8a159bd1b",
+      "sha256": "514d88c55848e3d46fd6ac59eda065d984fcbcf096e256738ac7f4bf97010747",
       "reason": "Release iterators and frames even when an exit callback panics.",
       "dependencies": [
         "function-hooks",
@@ -101,7 +101,7 @@
     {
       "id": "lambda-grammar",
       "file": "008-lambda-grammar.patch",
-      "sha256": "290c1c9e64d8bd08f94d4d15ea28c1fe1cddb40ca6a9fc48b97ce661ffc008c7",
+      "sha256": "16c2f4a5b9748fd76fb5808c26a5ca8e266e7cb6106c88c4d9ba95441a812cdc",
       "reason": "Keep lambda body colons distinct from def annotations.",
       "dependencies": [
         "annotation-parser",
@@ -115,7 +115,7 @@
     {
       "id": "annotation-safety",
       "file": "009-annotation-safety.patch",
-      "sha256": "1e4f943e7f8162cd8afc12ad970e1215152518c99a200724e8c80bb3870883e2",
+      "sha256": "7e05dee496b6ec184f2a6ee3267b49088fe9c1380abede73132d5d193b715268",
       "reason": "Return ordinary errors for unsupported typed execution and checking.",
       "dependencies": [
         "annotation-parser",
@@ -125,6 +125,34 @@
         "go test ./starlark -run TestAnnotation"
       ],
       "upstream_disposition": "fork parser execution boundary"
+    },
+    {
+      "id": "maintenance-ci",
+      "file": "010-maintenance-ci.patch",
+      "sha256": "cda3ccac9d537e3634abcd2259d39e274b1d18ad4be11bc81d57bb22868299c6",
+      "reason": "Test supported toolchains and reconstruct the fork using read-only, SHA-pinned CI.",
+      "dependencies": [
+        "annotation-safety"
+      ],
+      "tests": [
+        "actionlint .github/workflows/tests.yml",
+        "go run ./fork -revision HEAD"
+      ],
+      "upstream_disposition": "fork maintenance policy"
+    },
+    {
+      "id": "hook-backedge-regression",
+      "file": "011-hook-backedge-regression.patch",
+      "sha256": "5708fec1492a469d78e546b6406601d857369a0dcf71c56dbb6e027d37989466",
+      "reason": "Preserve cancellation and branch callbacks together at conditional back edges after replay conflicts.",
+      "dependencies": [
+        "branch-hook",
+        "maintenance-ci"
+      ],
+      "tests": [
+        "go test ./starlark -run TestBranchHookBackedgeCancellation"
+      ],
+      "upstream_disposition": "fork integration regression"
     }
   ]
 }

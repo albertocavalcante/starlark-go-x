@@ -1,8 +1,7 @@
-From 897e654f4f25428edf94661be9ae496f3737d3c0 Mon Sep 17 00:00:00 2001
+From 3e4c85338187033d9415d129f033b740bd7e961b Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
 Date: Tue, 3 Feb 2026 04:54:47 -0800
-Subject: [PATCH 2/9] feat(syntax): add type annotation support in AST and
- parser
+Subject: [PATCH] feat(syntax): add type annotation support in AST and parser
 
 ---
  syntax/options.go    | 16 +++++++++
@@ -44,10 +43,10 @@ index 109aaf630d87a8fc32621d7e27331511f7841017..a2c987a806bd81102c611f451cd9dec1
  // (And use it in the testdata "options:" strings.)
  
 diff --git a/syntax/parse.go b/syntax/parse.go
-index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb15642cca 100644
+index e115393b1bcdf62787e0b0e28580596953893437..41fe31a863489f96ff43392c4f68201fec724590 100644
 --- a/syntax/parse.go
 +++ b/syntax/parse.go
-@@ -186,15 +186,29 @@ func (p *parser) parseDefStmt() Stmt {
+@@ -207,15 +207,29 @@ func (p *parser) parseDefStmt() Stmt {
  	lparen := p.consume(LPAREN)
  	params := p.parseParams()
  	rparen := p.consume(RPAREN)
@@ -83,7 +82,7 @@ index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb
  	}
  }
  
-@@ -459,7 +473,7 @@ func (p *parser) consume(t Token) Position {
+@@ -483,7 +497,7 @@ func (p *parser) consume(t Token) Position {
  //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
  func (p *parser) parseParams() []Expr {
  	var params []Expr
@@ -92,7 +91,7 @@ index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb
  		if len(params) > 0 {
  			p.consume(COMMA)
  		}
-@@ -467,13 +481,25 @@ func (p *parser) parseParams() []Expr {
+@@ -491,13 +505,25 @@ func (p *parser) parseParams() []Expr {
  			break
  		}
  
@@ -120,7 +119,7 @@ index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb
  			}
  			params = append(params, &UnaryExpr{
  				OpPos: pos,
-@@ -484,9 +510,37 @@ func (p *parser) parseParams() []Expr {
+@@ -508,9 +534,37 @@ func (p *parser) parseParams() []Expr {
  		}
  
  		// IDENT
@@ -159,7 +158,7 @@ index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb
  			eq := p.nextToken()
  			dflt := p.parseTest()
  			params = append(params, &BinaryExpr{
-@@ -503,6 +557,16 @@ func (p *parser) parseParams() []Expr {
+@@ -527,6 +581,16 @@ func (p *parser) parseParams() []Expr {
  	return params
  }
  
@@ -177,10 +176,10 @@ index 52bdb3875fd5146886f5b2af835da46be4d46016..e3c0d0e4b0712d552f3cf6d23d32cdcb
  // comma-separated list of 'test' expressions.
  //
 diff --git a/syntax/parse_test.go b/syntax/parse_test.go
-index 197e905051227cbfc022195a64a6af81ead48686..1a923a5ee94eec5bdc8fc789048866f72fe198b1 100644
+index 75645a4ece88293baf998aac581e0030a825f984..6973299f292b4e312ee1205f053cfd4506f3ee15 100644
 --- a/syntax/parse_test.go
 +++ b/syntax/parse_test.go
-@@ -469,6 +469,70 @@ var dataFile = func(pkgdir, filename string) string {
+@@ -496,6 +496,70 @@ var dataFile = func(pkgdir, filename string) string {
  	return filepath.Join(build.Default.GOPATH, "src/go.starlark.net", pkgdir, filename)
  }
  
@@ -252,7 +251,7 @@ index 197e905051227cbfc022195a64a6af81ead48686..1a923a5ee94eec5bdc8fc789048866f7
  	filename := dataFile("syntax", "testdata/scan.star")
  	b.StopTimer()
 diff --git a/syntax/scan.go b/syntax/scan.go
-index 4a6dac641e1566d4f3449d6f16a8294f7cde1aba..7130381ebcca2aa9bed8d5351c5e315d4f2ab7e0 100644
+index c45be866b4fbb59f4e28392503b7b1ce9cc18767..9bd6d1639657f7be35902a5bbb6cde518440e9f3 100644
 --- a/syntax/scan.go
 +++ b/syntax/scan.go
 @@ -78,6 +78,7 @@ const (
@@ -280,7 +279,7 @@ index 4a6dac641e1566d4f3449d6f16a8294f7cde1aba..7130381ebcca2aa9bed8d5351c5e315d
  	AND:           "and",
  	BREAK:         "break",
  	CONTINUE:      "continue",
-@@ -811,6 +813,10 @@ start:
+@@ -814,6 +816,10 @@ start:
  		case '+':
  			return PLUS
  		case '-':
@@ -292,7 +291,7 @@ index 4a6dac641e1566d4f3449d6f16a8294f7cde1aba..7130381ebcca2aa9bed8d5351c5e315d
  		case '/':
  			if sc.peekRune() == '/' {
 diff --git a/syntax/scan_test.go b/syntax/scan_test.go
-index cfed6c930a62660efcaafeb0d765633956a03f22..dc6f88c18b643f398a95358a53fd1889fd5eef1e 100644
+index e946592677eb2c366650f9694e0a5932c62937fd..742ad8e3c5de4e54b8dfc3567336e039b4b6f6eb 100644
 --- a/syntax/scan_test.go
 +++ b/syntax/scan_test.go
 @@ -270,6 +270,15 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
@@ -312,7 +311,7 @@ index cfed6c930a62660efcaafeb0d765633956a03f22..dc6f88c18b643f398a95358a53fd1889
  		got, err := scan(test.input)
  		if err != nil {
 diff --git a/syntax/syntax.go b/syntax/syntax.go
-index 5bfbcec39a8b10b9355573f34009fcc9efe3afbc..c3a02ec8467afd1ccc32888504aec10fd01d976b 100644
+index 57983b4b3f810a8afdca8950c2e00d61010cbc93..8082e60f48b899c058e2a91c21988600c46c2a27 100644
 --- a/syntax/syntax.go
 +++ b/syntax/syntax.go
 @@ -121,12 +121,14 @@ func (x *AssignStmt) Span() (start, end Position) {
@@ -334,7 +333,7 @@ index 5bfbcec39a8b10b9355573f34009fcc9efe3afbc..c3a02ec8467afd1ccc32888504aec10f
 +	ReturnType *TypeExpr // return type annotation, or nil
 +	Body       []Stmt
  
- 	Function interface{} // a *resolve.Function, set by resolver
+ 	Function any // a *resolve.Function, set by resolver
  }
 @@ -136,6 +138,36 @@ func (x *DefStmt) Span() (start, end Position) {
  	return x.Def, end
@@ -413,3 +412,6 @@ index 65f68083d5a0af4e2d6e96df61b231c951fb3152..8b98068a3f874fdefc893e425178ddf8
  	default:
  		panic(n)
  	}
+-- 
+2.56.0
+

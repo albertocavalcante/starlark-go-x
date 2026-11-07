@@ -1,7 +1,7 @@
-From 3886188450d30272a8c12505d92f66899a03056b Mon Sep 17 00:00:00 2001
+From ed37ea83175329745fe3162f246e6eeafe512a9d Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
 Date: Tue, 3 Feb 2026 11:08:50 -0800
-Subject: [PATCH 4/9] feat: add OnFunctionEnter/Exit callbacks for function
+Subject: [PATCH] feat: add OnFunctionEnter/Exit callbacks for function
  coverage
 
 Add Thread.OnFunctionEnter and Thread.OnFunctionExit callbacks to enable
@@ -27,10 +27,10 @@ TODO(upstream): trim verbose comments to match codebase style before proposing.
  3 files changed, 160 insertions(+), 1 deletion(-)
 
 diff --git a/starlark/eval.go b/starlark/eval.go
-index 112d955dc8d09996a85fe6cc73c8564173f92687..749fea55e0b285028acf2029cd434f23e4474104 100644
+index 0aba29056519d0ee8fb12ac6c230a32712982628..74952b2107a1a32c9e64ae8f9565728ecce1f912 100644
 --- a/starlark/eval.go
 +++ b/starlark/eval.go
-@@ -67,6 +67,18 @@ type Thread struct {
+@@ -66,6 +66,18 @@ type Thread struct {
  	// TODO(upstream): trim verbose comments to match codebase style before proposing.
  	OnBranch func(fn *Function, pc uint32, taken bool)
  
@@ -50,10 +50,10 @@ index 112d955dc8d09996a85fe6cc73c8564173f92687..749fea55e0b285028acf2029cd434f23
  	// by this thread. It is incremented by the interpreter. It may be used
  	// as a measure of the approximate cost of Starlark execution, by
 diff --git a/starlark/eval_test.go b/starlark/eval_test.go
-index 7f871c366203979101011e45f36f8154a998d1b8..0de291e73151cbc6fa35aa2bb1f96b6903f33190 100644
+index 9fb684e2ef1d0597f4cf242e3409d4306d699a5b..2e1eb5b0574024fc4a6129502bf424b921533f6a 100644
 --- a/starlark/eval_test.go
 +++ b/starlark/eval_test.go
-@@ -1433,3 +1433,137 @@ r4 = test_or(False, True)
+@@ -1465,3 +1465,137 @@ r4 = test_or(False, True)
  
  	t.Logf("OnBranch fired %d times for short-circuit operators", branchCount)
  }
@@ -192,11 +192,11 @@ index 7f871c366203979101011e45f36f8154a998d1b8..0de291e73151cbc6fa35aa2bb1f96b69
 +	t.Logf("Captured results: %v", results)
 +}
 diff --git a/starlark/interp.go b/starlark/interp.go
-index 517b6a52fa060e2df926ffcbe963ff417c72f157..9ab1b7e2b5d11d6ae79562dac449278432fd630a 100644
+index e2b9b837dc21b90f7ac4dd32e4ea34c26eaf0353..2e0524ed69969bb7f551eb8cbcc39f9826a91b1f 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
-@@ -89,10 +89,24 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
- 	// - there is no redefinition of 'err'.
+@@ -100,10 +100,24 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+ 	// spill of err, but had no measurable runtime effect.)
  
  	var iterstack []Iterator // stack of active iterators
 +	var result Value         // moved here so defer can capture it
@@ -220,7 +220,7 @@ index 517b6a52fa060e2df926ffcbe963ff417c72f157..9ab1b7e2b5d11d6ae79562dac4492784
  		// ITERPOP the rest of the iterator stack.
  		for _, iter := range iterstack {
  			iter.Done()
-@@ -103,7 +117,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+@@ -114,7 +128,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
  
  	sp := 0
  	var pc uint32
@@ -228,3 +228,6 @@ index 517b6a52fa060e2df926ffcbe963ff417c72f157..9ab1b7e2b5d11d6ae79562dac4492784
  	code := f.Code
  loop:
  	for {
+-- 
+2.56.0
+
