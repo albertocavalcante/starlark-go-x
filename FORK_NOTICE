@@ -1,0 +1,18 @@
+starlark-go-x copyright attribution
+
+Upstream starlark-go retains its original copyright notices and BSD-style
+license in LICENSE. Those notices apply to the upstream work.
+
+Fork-specific additions and modifications authored by Alberto Cavalcante
+are Copyright (c) 2026 Alberto Cavalcante. All rights reserved. These include
+the execution, branch, function and iteration hooks, source-position API,
+and type-annotation parsing extensions introduced after upstream commit
+3fee463870c9e2f24e391952f5cf5e95463357b4, and their associated tests.
+
+Files containing both upstream work and fork modifications retain upstream
+notices and identify Alberto Cavalcante's modifications separately. New
+files authored for this fork carry Alberto Cavalcante's copyright notice.
+
+The fork modifications use the BSD-style license in LICENSE. This notice
+identifies their copyright holder; it does not assign their copyright to
+the upstream project or The Bazel Authors.

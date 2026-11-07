@@ -1,3 +1,7 @@
+// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package starlark
 
 // This file defines the bytecode interpreter.
