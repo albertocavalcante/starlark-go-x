@@ -13,7 +13,8 @@ fork/bench/run.sh /absolute/path/to/new-results-directory
 ```
 
 Use an appropriate external scratch/cache location and capacity guard. The runner
-requires a new output directory, fixes Go1.27.3 and one logical CPU, compiles each
+requires a new output directory, fixes Go1.27.3, one logical CPU, GOGC=100,
+GOMEMLIMIT=off and an empty GODEBUG, records architecture feature levels, compiles each
 benchmark binary once, then alternates execution order across ten samples.
 It saves source/toolchain/environment identity, workload hashes, both module
 graphs, the fork manifest, raw samples and pinned benchstat output. Binary outputs
