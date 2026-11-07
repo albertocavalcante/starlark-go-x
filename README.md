@@ -1,5 +1,29 @@
 
-<!-- This file is the project homepage for go.starlark.net -->
+# starlark-go-x
+
+This is Alberto Cavalcante's maintained fork of
+[Google's starlark-go](https://github.com/google/starlark-go). It adds execution,
+branch, function and iteration hooks for instrumentation, source-position lookup,
+and opt-in annotation parsing. Annotated execution and static checking are
+unsupported.
+
+[![Fork tests](https://github.com/albertocavalcante/starlark-go-x/actions/workflows/tests.yml/badge.svg)](https://github.com/albertocavalcante/starlark-go-x/actions/workflows/tests.yml)
+[![Upstream drift](https://github.com/albertocavalcante/starlark-go-x/actions/workflows/upstream.yml/badge.svg)](https://github.com/albertocavalcante/starlark-go-x/actions/workflows/upstream.yml)
+
+- [Use the fork and its hooks](fork/USAGE.md).
+- [Reproduce a revision, update upstream, and recover](fork/README.md).
+- [Report fork issues](https://github.com/albertocavalcante/starlark-go-x/issues).
+
+The module path remains `go.starlark.net`; consumers select an immutable fork
+revision through a main-module replacement. The minimum Go version is 1.25;
+CI tests Go 1.25, 1.26 and 1.27 on Linux, macOS and Windows. The selected upstream
+commit and intentional changes are recorded in [the manifest](fork/manifest.json).
+
+Upstream retains its original copyright and BSD license. Alberto Cavalcante owns
+his fork additions and modifications, as explained in [FORK_NOTICE](FORK_NOTICE).
+The following documentation and credits describe the upstream project.
+
+---
 
 # Starlark in Go
 
