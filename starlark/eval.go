@@ -51,6 +51,10 @@ type Thread struct {
 	// The default behavior is to call thread.Cancel("too many steps").
 	OnMaxSteps func(thread *Thread)
 
+	// Budget optionally limits declared sequence repetition and host resources.
+	// See BudgetUsage for the intentionally limited accounting coverage.
+	Budget *Budget
+
 	// OnExec is called before each bytecode instruction is executed, if non-nil.
 	// This hook enables coverage instrumentation, debugging, and tracing.
 	// The callback receives the executing function and program counter;
@@ -802,7 +806,13 @@ func Unary(op syntax.Token, x Value) (Value, error) {
 
 // Binary applies a strict binary operator (not AND or OR) to its operands.
 // For equality tests or ordered comparisons, use Compare instead.
+// It has no thread and does not charge a Budget.
 func Binary(op syntax.Token, x, y Value) (Value, error) {
+	return binaryWithBudget(nil, op, x, y)
+}
+
+// binaryWithBudget is the budget-aware interpreter path. Binary has no thread or budget.
+func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error) {
 	switch op {
 	case syntax.PLUS:
 		switch x := x.(type) {
@@ -897,17 +907,17 @@ func Binary(op syntax.Token, x, y Value) (Value, error) {
 				}
 				return xf * y, nil
 			case String:
-				return stringRepeat(y, x)
+				return stringRepeat(budget, y, x)
 			case Bytes:
-				return bytesRepeat(y, x)
+				return bytesRepeat(budget, y, x)
 			case *List:
-				elems, err := tupleRepeat(Tuple(y.elems), x)
+				elems, err := tupleRepeat(budget, Tuple(y.elems), x)
 				if err != nil {
 					return nil, err
 				}
 				return NewList(elems), nil
 			case Tuple:
-				return tupleRepeat(y, x)
+				return tupleRepeat(budget, y, x)
 			}
 		case Float:
 			switch y := y.(type) {
@@ -922,15 +932,15 @@ func Binary(op syntax.Token, x, y Value) (Value, error) {
 			}
 		case String:
 			if y, ok := y.(Int); ok {
-				return stringRepeat(x, y)
+				return stringRepeat(budget, x, y)
 			}
 		case Bytes:
 			if y, ok := y.(Int); ok {
-				return bytesRepeat(x, y)
+				return bytesRepeat(budget, x, y)
 			}
 		case *List:
 			if y, ok := y.(Int); ok {
-				elems, err := tupleRepeat(Tuple(x.elems), y)
+				elems, err := tupleRepeat(budget, Tuple(x.elems), y)
 				if err != nil {
 					return nil, err
 				}
@@ -938,7 +948,7 @@ func Binary(op syntax.Token, x, y Value) (Value, error) {
 			}
 		case Tuple:
 			if y, ok := y.(Int); ok {
-				return tupleRepeat(x, y)
+				return tupleRepeat(budget, x, y)
 			}
 
 		}
@@ -1178,7 +1188,7 @@ unknown:
 // try to stop someone swallowing the world in one gulp.
 const maxAlloc = 1 << 30
 
-func tupleRepeat(elems Tuple, n Int) (Tuple, error) {
+func tupleRepeat(budget *Budget, elems Tuple, n Int) (Tuple, error) {
 	if len(elems) == 0 {
 		return nil, nil
 	}
@@ -1195,6 +1205,9 @@ func tupleRepeat(elems Tuple, n Int) (Tuple, error) {
 		// Don't print sz.
 		return nil, fmt.Errorf("excessive repeat (%d * %d elements)", len(elems), i)
 	}
+	if err := budget.Charge(BudgetUsage{Elements: uint64(sz)}); err != nil {
+		return nil, err
+	}
 	res := make([]Value, sz)
 	// copy elems into res, doubling each time
 	x := copy(res, elems)
@@ -1205,12 +1218,12 @@ func tupleRepeat(elems Tuple, n Int) (Tuple, error) {
 	return res, nil
 }
 
-func bytesRepeat(b Bytes, n Int) (Bytes, error) {
-	res, err := stringRepeat(String(b), n)
+func bytesRepeat(budget *Budget, b Bytes, n Int) (Bytes, error) {
+	res, err := stringRepeat(budget, String(b), n)
 	return Bytes(res), err
 }
 
-func stringRepeat(s String, n Int) (String, error) {
+func stringRepeat(budget *Budget, s String, n Int) (String, error) {
 	if s == "" {
 		return "", nil
 	}
@@ -1226,6 +1239,9 @@ func stringRepeat(s String, n Int) (String, error) {
 	if of != 0 || sz >= maxAlloc { // of != 0 => overflow
 		// Don't print sz.
 		return "", fmt.Errorf("excessive repeat (%d * %d elements)", len(s), i)
+	}
+	if err := budget.Charge(BudgetUsage{Bytes: uint64(sz)}); err != nil {
+		return "", err
 	}
 	return String(strings.Repeat(string(s), i)), nil
 }

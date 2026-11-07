@@ -12,7 +12,9 @@
       "file": "001-execution-hook.patch",
       "sha256": "2e14bc2b66c4d0450385ab653641acca7d38d0e6a265c23e2c4ab74a54ed310c",
       "reason": "Instruction callbacks and PositionAt for source-mapped instrumentation.",
-      "dependencies": [],
+      "dependencies": [
+
+      ],
       "tests": [
         "go test ./starlark -run TestOnExec"
       ],
@@ -193,6 +195,33 @@
         "go test ./starlark -run TestHookPanicReleasesNestedIterators"
       ],
       "upstream_disposition": "fork hook regression"
+    },
+    {
+      "id": "resource-budget",
+      "file": "015-resource-budget.patch",
+      "sha256": "12245010858fc645a9b6e25ee1c6df7c4aa6ab6eb066dd2feef73388e7b1c256",
+      "reason": "Charge logical repetition output before allocation and let cooperating hosts charge declared work; other allocation paths remain unmetered.",
+      "dependencies": [
+        "hook-panic-contracts"
+      ],
+      "tests": [
+        "go test ./starlark -run TestBudget",
+        "go test ./starlark -run ^$ -fuzz ^FuzzBudgetCharge$ -fuzztime=3s -parallel=1"
+      ],
+      "upstream_disposition": "independent fork API/maintenance"
+    },
+    {
+      "id": "runmux-routing",
+      "file": "016-runmux-routing.patch",
+      "sha256": "30058c61aa0008142e624068f160ec70b596c7d3ae174e03676471fe53af7d21",
+      "reason": "Route Linux matrix cells through Runmux while retaining explicit native macOS and Windows cells.",
+      "dependencies": [
+        "maintenance-ci"
+      ],
+      "tests": [
+        "actionlint .github/workflows/tests.yml"
+      ],
+      "upstream_disposition": "independent fork API/maintenance"
     }
   ]
 }

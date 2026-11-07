@@ -18,7 +18,8 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
         go-version: [1.25.x, 1.26.x, 1.27.x]
-    runs-on: ${{ matrix.os }}
+    # Linux uses Runmux; native macOS/Windows remain explicit matrix cells.
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && (vars.CI_LINUX_RUNNER || 'air-ci') || matrix.os }}
     steps:
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

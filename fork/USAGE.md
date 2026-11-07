@@ -89,6 +89,44 @@ compiler revisions. Source positions do not enumerate all executable lines or
 possible branches. Observed events alone do not establish a complete coverage
 denominator. No zero-overhead claim is made for unset hooks.
 
+## Logical resource budget
+
+Attach an optional budget before evaluation:
+
+```go
+thread := &starlark.Thread{
+    Budget: starlark.NewBudget(starlark.BudgetUsage{
+        Bytes: 1 << 20, Elements: 10000, Work: 10000,
+    }),
+}
+```
+
+The interpreter charges the complete output length **before** string/bytes or
+list/tuple repetition by an integer, in either operand order. Bytes and elements
+are separate units. Charges are cumulative across calls/modules using the same
+budget, and are not refunded when objects become unreachable. Even a repetition
+that reuses storage can incur its logical output charge. Zero limits mean
+unlimited; counter overflow is always refused. A nil budget disables accounting.
+
+Cooperating Go builtins can call `thread.Budget.Charge` before work or allocation.
+For example, charge `BudgetUsage{Work: 1}` at each bounded iteration. Propagate a
+charge error before performing that work. This API cannot interrupt a blocked or
+uncooperative Go function; timeouts/cancellation still require host cooperation.
+
+Use `Usage()` for successfully charged counters. A refused multi-resource charge
+changes no counters. Errors retain a typed `*starlark.BudgetError` through the
+source-mapped `*starlark.EvalError`; inspect it with `errors.As`. A budget is not
+safe for concurrent access and must not be shared by executing threads. Reuse
+preserves accumulated charges; install a new budget to reset them.
+
+**Initial coverage is deliberately narrow.** Other operators (including
+concatenation), literals, comprehensions, collection growth, parsing/compilation,
+ordinary builtins, custom values and the threadless `starlark.Binary` API are not
+automatically charged. Work is host-defined; byte charges are not actual Go
+allocations, retained heap or RSS. Budget success does not qualify an untrusted
+program as memory-bounded. Keep input/output/concurrency bounds and isolated
+worker controls appropriate to the host's trust model.
+
 ## Annotation boundary
 
 The default `syntax.FileOptions` rejects annotation syntax. With
