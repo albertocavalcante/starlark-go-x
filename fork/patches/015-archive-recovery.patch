@@ -1,0 +1,37 @@
+diff --git a/.github/workflows/recovery.yml b/.github/workflows/recovery.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..45428056cdcbe8ad9345342ba8d2392723a7620a
+--- /dev/null
++++ b/.github/workflows/recovery.yml
+@@ -0,0 +1,31 @@
++name: Archive recovery
++on:
++  pull_request:
++  push:
++    branches: [trunk]
++  schedule:
++    - cron: '43 8 * * 1'
++  workflow_dispatch:
++permissions:
++  contents: read
++concurrency:
++  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
++  cancel-in-progress: true
++jobs:
++  recover:
++    runs-on: ubuntu-24.04
++    permissions:
++      contents: read
++    timeout-minutes: 10
++    steps:
++      - name: Checkout reviewed recovery harness
++        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          persist-credentials: false
++      - name: Install exact Go toolchain
++        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
++        with:
++          go-version: '1.27.3'
++      - name: Recover current and historical source without Google
++        shell: bash
++        run: fork/recover.sh "$PWD" "$(git rev-parse HEAD)"

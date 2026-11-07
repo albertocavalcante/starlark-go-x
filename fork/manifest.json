@@ -193,6 +193,19 @@
         "go test ./starlark -run TestHookPanicReleasesNestedIterators"
       ],
       "upstream_disposition": "fork hook regression"
+    },
+    {
+      "id": "archive-recovery",
+      "file": "015-archive-recovery.patch",
+      "sha256": "41a5e117b2641ac31710e7b6918f0f68aaa82e975b6bd5ad59c190d46075163d",
+      "reason": "Periodically reconstruct current and historical snapshots from real fork archives and reject missing/moved archive refs.",
+      "dependencies": [
+        "maintenance-ci"
+      ],
+      "tests": [
+        "fork/recover.sh \"$PWD\""
+      ],
+      "upstream_disposition": "fork maintenance automation"
     }
   ]
 }
