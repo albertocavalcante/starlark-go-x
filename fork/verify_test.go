@@ -124,6 +124,19 @@ func TestRejectChangedInputs(t *testing.T) {
 	}
 }
 
+func TestArchiveMovesBeforeFetch(t *testing.T) {
+	repo, m := fixture(t)
+	head := command(t, repo, "rev-parse", "HEAD")
+	// Simulate movement after verify's initial source check but before retrieval.
+	// The old base is still reachable from HEAD, so mere object presence is weak.
+	command(t, repo, "tag", "-f", strings.TrimPrefix(m.Upstream.ArchiveRef, "refs/tags/"), head)
+	tmp := t.TempDir()
+	command(t, tmp, "init", "-q")
+	if err := fetchInputs(tmp, repo, head, m.Upstream); err == nil || !strings.Contains(err.Error(), "fetched upstream archive identity mismatch") {
+		t.Fatalf("moved transport ref accepted or wrong failure: %v", err)
+	}
+}
+
 func TestManifestValidation(t *testing.T) {
 	_, good := fixture(t)
 	for _, scenario := range []string{"version", "url", "branch", "commit", "ref", "path", "duplicate", "dependency", "reason", "tests", "disposition", "hash", "empty"} {

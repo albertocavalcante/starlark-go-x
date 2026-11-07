@@ -108,6 +108,22 @@ func git(repo string, input []byte, args ...string) ([]byte, error) {
 	return b, nil
 }
 
+// Validate the fetched ref too: the source ref may move after the initial check.
+func fetchInputs(tmp, repo, head string, u upstream) error {
+	const fetched = "refs/tags/recorded-upstream"
+	if _, err := git(tmp, nil, "fetch", "--no-tags", "--", repo, head, u.ArchiveRef+":"+fetched); err != nil {
+		return err
+	}
+	b, err := git(tmp, nil, "rev-parse", "--verify", fetched+"^{commit}")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(b)) != u.Commit {
+		return fmt.Errorf("fetched upstream archive identity mismatch")
+	}
+	return nil
+}
+
 func verify(repo, revision string) (string, error) {
 	repo, err := filepath.Abs(repo)
 	if err != nil {
@@ -173,7 +189,7 @@ func verify(repo, revision string) (string, error) {
 	if _, err := run(nil, "init", "-q"); err != nil {
 		return "", err
 	}
-	if _, err := run(nil, "fetch", "--no-tags", "--", repo, head, m.Upstream.ArchiveRef); err != nil {
+	if err := fetchInputs(tmp, repo, head, m.Upstream); err != nil {
 		return "", err
 	}
 	paths, err := run(nil, "ls-tree", "--name-only", m.Upstream.Commit, "--", "fork")
