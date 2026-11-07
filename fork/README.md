@@ -45,6 +45,11 @@ fork archive tag, run:
 go run ./fork prepare -revision origin/trunk -upstream FULL_UPSTREAM_SHA -output /path/to/new-update-directory
 ```
 
+Preparation requires a working checkout; Git metadata directories and bare
+repository sources are rejected. A source subdirectory is normalized to its
+checkout root. Fork metadata must contain regular files rather than symlinks or
+submodules, and generated metadata files are replaced atomically.
+
 The output directory's parent must exist. The directory must be new and outside
 the source checkout and its Git metadata, including a shared worktree Git dir.
 Only committed inputs are used; dirty source work is preserved. Git network

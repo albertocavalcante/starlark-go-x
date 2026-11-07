@@ -87,6 +87,10 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
+	return writeAtomic(path, append(b, '\n'))
+}
+
+func writeAtomic(path string, data []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".prepare-*.tmp")
 	if err != nil {
 		return err
@@ -96,7 +100,7 @@ func writeJSON(path string, value any) error {
 		f.Close()
 		return err
 	}
-	if _, err := f.Write(append(b, '\n')); err != nil {
+	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return err
 	}
@@ -117,6 +121,15 @@ func prepare(repo, revision, target, output string) (r prepareReport, err error)
 	if err != nil {
 		return r, err
 	}
+	inside, err := git(repo, nil, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(string(inside)) != "true" {
+		return r, fmt.Errorf("prepare requires a working checkout, not a bare repository or Git metadata directory: %v", err)
+	}
+	top, err := git(repo, nil, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return r, err
+	}
+	repo = strings.TrimSpace(string(top))
 	r.Base, err = resolve(repo, revision)
 	if err != nil {
 		return r, err
@@ -133,6 +146,17 @@ func prepare(repo, revision, target, output string) (r prepareReport, err error)
 	// verify has already strictly decoded and validated these immutable bytes.
 	if err := json.Unmarshal(b, &m); err != nil {
 		return r, err
+	}
+	metadata, err := git(repo, nil, "ls-tree", "-rz", r.Base, "--", "fork/")
+	if err != nil {
+		return r, err
+	}
+	for _, entry := range strings.Split(strings.TrimSuffix(string(metadata), "\x00"), "\x00") {
+		header := strings.SplitN(entry, "\t", 2)[0]
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
+			return r, fmt.Errorf("prepare requires regular fork metadata files: %s", entry)
+		}
 	}
 	if m.Upstream.Commit == target {
 		r.Status = "noop"
@@ -272,7 +296,7 @@ func prepare(repo, revision, target, output string) (r prepareReport, err error)
 	}
 	m.Upstream.Commit, m.Upstream.ArchiveRef = target, archive
 	for i, p := range m.Patches {
-		if err := os.WriteFile(filepath.Join(work, "fork", "patches", p.File), patches[i], 0644); err != nil {
+		if err := writeAtomic(filepath.Join(work, "fork", "patches", p.File), patches[i]); err != nil {
 			return r, err
 		}
 		m.Patches[i].SHA256 = fmt.Sprintf("%x", sha256.Sum256(patches[i]))
@@ -281,6 +305,15 @@ func prepare(repo, revision, target, output string) (r prepareReport, err error)
 		return r, err
 	}
 	if _, err := run(nil, "add", "--", "fork"); err != nil {
+		return r, err
+	}
+	// Generated data files have an explicit index mode even on filesystems where
+	// core.filemode=false would otherwise preserve a previous executable bit.
+	generated := []string{"update-index", "--chmod=-x", "--", "fork/manifest.json"}
+	for _, p := range m.Patches {
+		generated = append(generated, "fork/patches/"+p.File)
+	}
+	if _, err := run(nil, generated...); err != nil {
 		return r, err
 	}
 	r.Candidate, err = checkpoint(r.Base, "upstream-"+target[:12])

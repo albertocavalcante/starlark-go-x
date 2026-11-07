@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -143,6 +144,20 @@ func TestPrepareProtectsSharedGitDirectory(t *testing.T) {
 	}
 }
 
+func TestPrepareNormalizesCheckoutBoundary(t *testing.T) {
+	repo, m := fixture(t)
+	next := nextUpstream(t, repo, m, false)
+	for _, source := range []string{filepath.Join(repo, ".git"), filepath.Join(repo, "fork")} {
+		out := filepath.Join(repo, "unexpected-output")
+		if _, err := prepare(source, "HEAD", next, out); err == nil {
+			t.Fatalf("source %s bypassed checkout boundary", source)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Fatal("output was created inside source checkout")
+		}
+	}
+}
+
 func TestPreparationRefFreshness(t *testing.T) {
 	repo, _ := fixture(t)
 	before := command(t, repo, "rev-parse", "HEAD")
@@ -180,7 +195,8 @@ func TestPrepareRejectsInterruptedOutput(t *testing.T) {
 	}
 }
 
-func TestPrepareRequiresReviewBeforeRetiringPatch(t *testing.T) {
+func valueOnlyFixture(t *testing.T) (string, manifest) {
+	t.Helper()
 	repo, m := fixture(t)
 	command(t, repo, "checkout", "-f", "HEAD")
 	command(t, repo, "restore", "--source="+m.Upstream.Commit, "--staged", "--worktree", "--", "binary", "gone")
@@ -190,6 +206,11 @@ func TestPrepareRequiresReviewBeforeRetiringPatch(t *testing.T) {
 	saveManifest(t, repo, m)
 	command(t, repo, "add", "fork")
 	command(t, repo, "commit", "-qm", "single change fixture")
+	return repo, m
+}
+
+func TestPrepareRequiresReviewBeforeRetiringPatch(t *testing.T) {
+	repo, m := valueOnlyFixture(t)
 	before := command(t, repo, "rev-parse", "HEAD")
 	command(t, repo, "checkout", "-q", "--detach", m.Upstream.Commit)
 	command(t, repo, "restore", "--source="+before, "--staged", "--worktree", "--", "value")
@@ -200,5 +221,62 @@ func TestPrepareRequiresReviewBeforeRetiringPatch(t *testing.T) {
 	r, err := prepare(repo, "HEAD", next, filepath.Join(t.TempDir(), "empty"))
 	if err == nil || !strings.Contains(err.Error(), "became empty") || r.Status == "prepared" {
 		t.Fatalf("absorbed patch retired without review: %+v %v", r, err)
+	}
+}
+
+func commitPatchLink(t *testing.T, repo string, m manifest, target string) {
+	t.Helper()
+	b, err := git(repo, []byte(target), "hash-object", "-w", "--stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Patches[0].SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(target)))
+	saveManifest(t, repo, m)
+	command(t, repo, "add", "fork/manifest.json")
+	command(t, repo, "update-index", "--cacheinfo", "120000", strings.TrimSpace(string(b)), "fork/patches/001.patch")
+	command(t, repo, "commit", "-qm", "symlink metadata fixture")
+	if _, err := verify(repo, "HEAD"); err != nil {
+		t.Fatalf("fixture must pass reconstruction before preparation: %v", err)
+	}
+}
+
+func TestPrepareRejectsSymlinkMetadata(t *testing.T) {
+	repo, m := valueOnlyFixture(t)
+	next := nextUpstream(t, repo, m, false)
+	b, err := git(repo, nil, "show", "HEAD:fork/patches/001.patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitPatchLink(t, repo, m, string(b))
+	if _, err := prepare(repo, "HEAD", next, filepath.Join(t.TempDir(), "reject")); err == nil || !strings.Contains(err.Error(), "regular fork metadata") {
+		t.Fatalf("symlink metadata was not rejected before checkout: %v", err)
+	}
+}
+
+func TestPrepareDoesNotFollowPatchSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("newline-bearing sentinel path cannot be represented on Windows; metadata mode rejection is tested separately")
+	}
+	repo, m := valueOnlyFixture(t)
+	next := nextUpstream(t, repo, m, false)
+	b, err := git(repo, nil, "show", "HEAD:fork/patches/001.patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// git apply ignores this absolute-path preamble, while a filesystem write
+	// through the committed symlink interprets the entire string as its target.
+	target := filepath.Join(t.TempDir(), "sentinel") + "\n" + string(b)
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("keep sentinel\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	commitPatchLink(t, repo, m, target)
+	if _, err := prepare(repo, "HEAD", next, filepath.Join(t.TempDir(), "candidate")); err == nil {
+		t.Error("symlink patch metadata accepted")
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "keep sentinel\n" {
+		t.Fatalf("external sentinel overwritten: %q %v", b, err)
 	}
 }
