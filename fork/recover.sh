@@ -7,7 +7,7 @@ set -eu
 # Run from a reviewed checkout. Only this checkout's verifier is executed;
 # historical source is inspected as data, with no access to Google.
 source_repo=${1:-https://github.com/albertocavalcante/starlark-go-x.git}
-current=${2:-$(git rev-parse HEAD)}
+requested_revision=${2-}
 historical=b2230cee27bcb2233ca2a159be38d14080f0248b
 archive_source=https://github.com/albertocavalcante/starlark-go-x.git
 case "$source_repo" in
@@ -17,6 +17,11 @@ case "$source_repo" in
     exit 2
     ;;
 esac
+# Do not inherit object stores, routing, credentials or URL rewrites.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_CONFIG GIT_CONFIG_SYSTEM GIT_TEMPLATE_DIR GIT_INDEX_FILE GIT_SHALLOW_FILE
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+export GIT_ALLOW_PROTOCOL=file:https GIT_NO_LAZY_FETCH=1 LC_ALL=C
+current=${requested_revision:-$(git rev-parse HEAD)}
 case "$current" in
   *[!0-9a-f]* | '')
     echo 'current revision must be a full commit SHA' >&2
@@ -25,10 +30,6 @@ case "$current" in
 esac
 [ "${#current}" -eq 40 ] || exit 2
 
-# Do not inherit object stores, routing, credentials or URL rewrites.
-unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_CONFIG GIT_CONFIG_SYSTEM GIT_TEMPLATE_DIR GIT_INDEX_FILE GIT_SHALLOW_FILE
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
-export GIT_ALLOW_PROTOCOL=file:https GIT_NO_LAZY_FETCH=1 LC_ALL=C
 recovery_dir=$(mktemp -d "${TMPDIR:-/tmp}/starlark-recovery.XXXXXX")
 trap 'rm -rf "$recovery_dir"' EXIT
 trap 'exit 130' INT
