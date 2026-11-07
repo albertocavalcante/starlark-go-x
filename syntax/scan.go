@@ -300,7 +300,7 @@ type scanner struct {
 	readline func() ([]byte, error) // read next line of input (REPL only)
 }
 
-func newScanner(filename string, src interface{}, keepComments bool) (*scanner, error) {
+func newScanner(filename string, src any, keepComments bool) (*scanner, error) {
 	var firstLine, firstCol int32 = 1, 1
 	if portion, ok := src.(FilePortion); ok {
 		firstLine, firstCol = portion.FirstLine, portion.FirstCol
@@ -322,7 +322,7 @@ func newScanner(filename string, src interface{}, keepComments bool) (*scanner, 
 	return sc, nil
 }
 
-func readSource(filename string, src interface{}) ([]byte, error) {
+func readSource(filename string, src any) ([]byte, error) {
 	switch src := src.(type) {
 	case string:
 		return []byte(src), nil
@@ -358,7 +358,7 @@ func (sc *scanner) error(pos Position, s string) {
 	panic(Error{pos, s})
 }
 
-func (sc *scanner) errorf(pos Position, format string, args ...interface{}) {
+func (sc *scanner) errorf(pos Position, format string, args ...any) {
 	sc.error(pos, fmt.Sprintf(format, args...))
 }
 
@@ -715,6 +715,9 @@ start:
 	switch c {
 	case '[', '(', '{':
 		sc.depth++
+		if sc.depth > 1000 {
+			sc.errorf(sc.pos, "excessive nesting")
+		}
 		sc.readRune()
 		sc.endToken(val)
 		switch c {

@@ -1,8 +1,7 @@
-From 4a5d526d027510571ea4dfbf644d610a5134f582 Mon Sep 17 00:00:00 2001
+From cbb2f54dd8b95e1ca0b7843efeb84d363ba6919b Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <alberto@cavalcante.uk>
 Date: Sat, 7 Nov 2026 00:21:12 -0300
-Subject: [PATCH 6/9] docs: attribute fork modifications to Alberto Cavalcante
- (#1)
+Subject: [PATCH] docs: attribute fork modifications to Alberto Cavalcante (#1)
 
 Identify Alberto Cavalcante's fork modifications separately from upstream
 Starlark code. Preserve the upstream license and copyright notices.
@@ -53,7 +52,7 @@ index 0000000000000000000000000000000000000000..eb1f70fc753f245e3fd4f0c92fd2dd59
 +identifies their copyright holder; it does not assign their copyright to
 +the upstream project or The Bazel Authors.
 diff --git a/starlark/eval.go b/starlark/eval.go
-index bf8e95cf60a5f05087fa16e399e69e548db8ee27..b207d48fa87a8ae6f216a17884cc4160f391ccde 100644
+index 95d21d4f641d75628ba3e741a0962788c5be292f..7ede5a58ca09949dee8e07cae75cd2c791f035e5 100644
 --- a/starlark/eval.go
 +++ b/starlark/eval.go
 @@ -1,4 +1,5 @@
@@ -63,7 +62,7 @@ index bf8e95cf60a5f05087fa16e399e69e548db8ee27..b207d48fa87a8ae6f216a17884cc4160
  // license that can be found in the LICENSE file.
  
 diff --git a/starlark/eval_test.go b/starlark/eval_test.go
-index f0fca6cf3ddafbd42b504d2a306a3afa74b8f027..c2ea92ac43b7cf177e2ab08e0596ee0836b0437b 100644
+index 26150d41938df0b51585deee5f4747373247070b..1832eda5e74736ae1d1e51e93c35d3cd1faef864 100644
 --- a/starlark/eval_test.go
 +++ b/starlark/eval_test.go
 @@ -1,4 +1,5 @@
@@ -73,7 +72,7 @@ index f0fca6cf3ddafbd42b504d2a306a3afa74b8f027..c2ea92ac43b7cf177e2ab08e0596ee08
  // license that can be found in the LICENSE file.
  
 diff --git a/starlark/interp.go b/starlark/interp.go
-index a77054f2106f04fbea66cab1354652f5bcf930ff..8c1a36ab2fa3c3abe880965cba7d8f9c5afba984 100644
+index 7fd1ed1de6ad33f469e6f9d0e9a58bf92745e7f9..39a3bb4907ab0804d4ec931c4a04bb16a2ec5274 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
 @@ -1,3 +1,7 @@
@@ -85,7 +84,7 @@ index a77054f2106f04fbea66cab1354652f5bcf930ff..8c1a36ab2fa3c3abe880965cba7d8f9c
  
  // This file defines the bytecode interpreter.
 diff --git a/starlark/value.go b/starlark/value.go
-index 590a3654ac80644ac5ddd60edd0bdb18bc5ecf22..0b474946addbd97f51c24409567672e4e4cbecd1 100644
+index 6a9ddf92ad361c15e98c4224a4b7d0fb1124ad5c..de90a81b47d60bba58b553ef15e3f473ac959fe8 100644
 --- a/starlark/value.go
 +++ b/starlark/value.go
 @@ -1,4 +1,5 @@
@@ -105,7 +104,7 @@ index a2c987a806bd81102c611f451cd9dec14cfc7724..24b4105cb5580acc3892cef28b0a8f6c
  // license that can be found in the LICENSE file.
  
 diff --git a/syntax/parse.go b/syntax/parse.go
-index e3c0d0e4b0712d552f3cf6d23d32cdcb15642cca..26fbc7f28c58b41bc379831bc3de6be9a64ed66e 100644
+index 41fe31a863489f96ff43392c4f68201fec724590..0d42acc79390049d5da39fb38d884ddd2e74e3f1 100644
 --- a/syntax/parse.go
 +++ b/syntax/parse.go
 @@ -1,4 +1,5 @@
@@ -115,7 +114,7 @@ index e3c0d0e4b0712d552f3cf6d23d32cdcb15642cca..26fbc7f28c58b41bc379831bc3de6be9
  // license that can be found in the LICENSE file.
  
 diff --git a/syntax/parse_test.go b/syntax/parse_test.go
-index 1a923a5ee94eec5bdc8fc789048866f72fe198b1..23ed50296873a59fb0cf33b7d91200718c807347 100644
+index 6973299f292b4e312ee1205f053cfd4506f3ee15..f491cc04e6d3a835735d2a848d45f58dcccbfbe0 100644
 --- a/syntax/parse_test.go
 +++ b/syntax/parse_test.go
 @@ -1,4 +1,5 @@
@@ -125,7 +124,7 @@ index 1a923a5ee94eec5bdc8fc789048866f72fe198b1..23ed50296873a59fb0cf33b7d9120071
  // license that can be found in the LICENSE file.
  
 diff --git a/syntax/scan.go b/syntax/scan.go
-index 7130381ebcca2aa9bed8d5351c5e315d4f2ab7e0..5c242ff49988266163a7f7ceb68207af8656ee5e 100644
+index 9bd6d1639657f7be35902a5bbb6cde518440e9f3..cc7514edf07d87872df5e2a621f22189164bf404 100644
 --- a/syntax/scan.go
 +++ b/syntax/scan.go
 @@ -1,4 +1,5 @@
@@ -135,7 +134,7 @@ index 7130381ebcca2aa9bed8d5351c5e315d4f2ab7e0..5c242ff49988266163a7f7ceb68207af
  // license that can be found in the LICENSE file.
  
 diff --git a/syntax/scan_test.go b/syntax/scan_test.go
-index dc6f88c18b643f398a95358a53fd1889fd5eef1e..af0031aeed4031ec80e8e50447b7c8056e0d40e3 100644
+index 742ad8e3c5de4e54b8dfc3567336e039b4b6f6eb..93f48d8b72a3e2fbcf8fdf04b1e74aef16888fd7 100644
 --- a/syntax/scan_test.go
 +++ b/syntax/scan_test.go
 @@ -1,4 +1,5 @@
@@ -145,7 +144,7 @@ index dc6f88c18b643f398a95358a53fd1889fd5eef1e..af0031aeed4031ec80e8e50447b7c805
  // license that can be found in the LICENSE file.
  
 diff --git a/syntax/syntax.go b/syntax/syntax.go
-index c3a02ec8467afd1ccc32888504aec10fd01d976b..38bb2176e90622cf33371a4c806f44c9261f7469 100644
+index 8082e60f48b899c058e2a91c21988600c46c2a27..8997bc76fee2265244f8c4dc561e0f025c0e949f 100644
 --- a/syntax/syntax.go
 +++ b/syntax/syntax.go
 @@ -1,4 +1,5 @@
@@ -164,3 +163,6 @@ index 8b98068a3f874fdefc893e425178ddf8cbe1a013..3197b18249f612a7fe19468c9390d26a
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
+-- 
+2.56.0
+

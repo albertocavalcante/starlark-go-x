@@ -1,18 +1,8 @@
-From acc886ed410108383265091f6bea2a581a2a8be2 Mon Sep 17 00:00:00 2001
-From: Alberto Cavalcante <alberto@cavalcante.uk>
-Date: Sat, 7 Nov 2026 00:30:36 -0300
-Subject: [PATCH 7/9] fix(starlark): guarantee cleanup after exit hook panics
- (#2)
+From e21a2fff255794b50ec9940ddea7d5e1623be574 Mon Sep 17 00:00:00 2001
+From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 19:17:28 -0800
+Subject: [PATCH] fix: release iterators when an exit hook panics
 
-Isolate exit callbacks from iterator and frame cleanup so a recovered hook
-panic cannot leave caller-owned lists locked. Preserve hook ordering and
-panic propagation.
-
-Four regressions fail on the base and pass after the fix. Canonical checks,
-the hosted platform matrix, and independent final-diff review passed.
-
-Squashed from:
-- 972ab457242454c735f0bab41e11e5980a6a0ca2
 ---
  starlark/hook_cleanup_test.go | 70 +++++++++++++++++++++++++++++++++++
  starlark/interp.go            | 13 +++----
@@ -96,10 +86,10 @@ index 0000000000000000000000000000000000000000..287738d0c40e20d0af7978df6c901b22
 +	}
 +}
 diff --git a/starlark/interp.go b/starlark/interp.go
-index 8c1a36ab2fa3c3abe880965cba7d8f9c5afba984..d40056acecc2c1f883f3d624b3b5f8c9e0da1fc0 100644
+index 39a3bb4907ab0804d4ec931c4a04bb16a2ec5274..003e2227defc6e5c59b4b50cfe873523988b8d3f 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
-@@ -104,13 +104,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+@@ -115,13 +115,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
  	// Use defer so that application panics can pass through
  	// interpreter without leaving thread in a bad state.
  	defer func() {
@@ -113,7 +103,7 @@ index 8c1a36ab2fa3c3abe880965cba7d8f9c5afba984..d40056acecc2c1f883f3d624b3b5f8c9
  		// ITERPOP the rest of the iterator stack.
  		for _, iter := range iterstack {
  			iter.Done()
-@@ -118,6 +111,12 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
+@@ -129,6 +122,12 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
  
  		fr.locals = nil
  	}()
@@ -126,3 +116,6 @@ index 8c1a36ab2fa3c3abe880965cba7d8f9c5afba984..d40056acecc2c1f883f3d624b3b5f8c9
  
  	sp := 0
  	var pc uint32
+-- 
+2.56.0
+

@@ -1,19 +1,39 @@
 name: Starlark Go Tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [trunk]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
+    permissions:
+      contents: read
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: [1.19.x, 1.20.x, 1.21.x, 1.22.x]
+        os: [ubuntu-24.04, macos-15, windows-2025]
+        go-version: [1.25.x, 1.26.x, 1.27.x]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Run Tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run tests
         shell: bash
-        run: 'internal/test.sh'
+        run: internal/test.sh
+      - name: Reconstruct committed source
+        if: matrix.os == 'ubuntu-24.04' && matrix.go-version == '1.25.x'
+        shell: bash
+        run: |
+          git fetch --no-tags origin 'refs/tags/upstream/*:refs/tags/upstream/*'
+          go run ./fork -revision HEAD

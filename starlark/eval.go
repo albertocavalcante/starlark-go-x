@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
-	"unsafe"
 
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
@@ -96,11 +95,11 @@ type Thread struct {
 	Steps, maxSteps uint64
 
 	// cancelReason records the reason from the first call to Cancel.
-	cancelReason *string
+	cancelReason atomic.Pointer[string]
 
 	// locals holds arbitrary "thread-local" Go values belonging to the client.
 	// They are accessible to the client but not to any Starlark program.
-	locals map[string]interface{}
+	locals map[string]any
 
 	// proftime holds the accumulated execution time since the last profile event.
 	proftime time.Duration
@@ -125,7 +124,7 @@ func (thread *Thread) SetMaxExecutionSteps(max uint64) {
 // Unlike most methods of Thread, it is safe to call Uncancel from any
 // goroutine, even if the thread is actively executing.
 func (thread *Thread) Uncancel() {
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&thread.cancelReason)), nil)
+	thread.cancelReason.Store(nil)
 }
 
 // Cancel causes execution of Starlark code in the specified thread to
@@ -139,20 +138,20 @@ func (thread *Thread) Uncancel() {
 // goroutine, even if the thread is actively executing.
 func (thread *Thread) Cancel(reason string) {
 	// Atomically set cancelReason, preserving earlier reason if any.
-	atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&thread.cancelReason)), nil, unsafe.Pointer(&reason))
+	thread.cancelReason.CompareAndSwap(nil, &reason)
 }
 
 // SetLocal sets the thread-local value associated with the specified key.
 // It must not be called after execution begins.
-func (thread *Thread) SetLocal(key string, value interface{}) {
+func (thread *Thread) SetLocal(key string, value any) {
 	if thread.locals == nil {
-		thread.locals = make(map[string]interface{})
+		thread.locals = make(map[string]any)
 	}
 	thread.locals[key] = value
 }
 
 // Local returns the thread-local value associated with the specified key.
-func (thread *Thread) Local(key string) interface{} {
+func (thread *Thread) Local(key string) any {
 	return thread.locals[key]
 }
 
@@ -226,7 +225,7 @@ type frame struct {
 	callable  Callable // current function (or toplevel) or built-in
 	pc        uint32   // program counter (Starlark frames only)
 	locals    []Value  // local variables (Starlark frames only)
-	spanStart int64    // start time of current profiler span
+	spanStart int64    // start time of current profiler span, or 0 if none
 }
 
 // Position returns the source position of the current point of execution in this frame.
@@ -365,7 +364,7 @@ func (prog *Program) Write(out io.Writer) error {
 //
 // Deprecated: use [ExecFileOptions] with [syntax.FileOptions] instead,
 // because this function relies on legacy global variables.
-func ExecFile(thread *Thread, filename string, src interface{}, predeclared StringDict) (StringDict, error) {
+func ExecFile(thread *Thread, filename string, src any, predeclared StringDict) (StringDict, error) {
 	return ExecFileOptions(syntax.LegacyFileOptions(), thread, filename, src, predeclared)
 }
 
@@ -386,7 +385,7 @@ func ExecFile(thread *Thread, filename string, src interface{}, predeclared Stri
 //
 // If ExecFileOptions fails during evaluation, it returns an *EvalError
 // containing a backtrace.
-func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, src interface{}, predeclared StringDict) (StringDict, error) {
+func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, src any, predeclared StringDict) (StringDict, error) {
 	// Parse, resolve, and compile a Starlark source file.
 	_, mod, err := SourceProgramOptions(opts, filename, src, predeclared.Has)
 	if err != nil {
@@ -402,7 +401,7 @@ func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, 
 //
 // Deprecated: use [SourceProgramOptions] with [syntax.FileOptions] instead,
 // because this function relies on legacy global variables.
-func SourceProgram(filename string, src interface{}, isPredeclared func(string) bool) (*syntax.File, *Program, error) {
+func SourceProgram(filename string, src any, isPredeclared func(string) bool) (*syntax.File, *Program, error) {
 	return SourceProgramOptions(syntax.LegacyFileOptions(), filename, src, isPredeclared)
 }
 
@@ -415,7 +414,7 @@ func SourceProgram(filename string, src interface{}, isPredeclared func(string) 
 // a pre-declared identifier of the current module.
 // Its typical value is predeclared.Has,
 // where predeclared is a StringDict of pre-declared values.
-func SourceProgramOptions(opts *syntax.FileOptions, filename string, src interface{}, isPredeclared func(string) bool) (*syntax.File, *Program, error) {
+func SourceProgramOptions(opts *syntax.FileOptions, filename string, src any, isPredeclared func(string) bool) (*syntax.File, *Program, error) {
 	f, err := opts.Parse(filename, src, 0)
 	if err != nil {
 		return nil, nil, err
@@ -568,7 +567,7 @@ func makeToplevelFunction(prog *Program, predeclared StringDict) *Function {
 //
 // Deprecated: use [EvalOptions] with [syntax.FileOptions] instead,
 // because this function relies on legacy global variables.
-func Eval(thread *Thread, filename string, src interface{}, env StringDict) (Value, error) {
+func Eval(thread *Thread, filename string, src any, env StringDict) (Value, error) {
 	return EvalOptions(syntax.LegacyFileOptions(), thread, filename, src, env)
 }
 
@@ -582,7 +581,7 @@ func Eval(thread *Thread, filename string, src interface{}, env StringDict) (Val
 //
 // If EvalOptions fails during evaluation, it returns an *EvalError
 // containing a backtrace.
-func EvalOptions(opts *syntax.FileOptions, thread *Thread, filename string, src interface{}, env StringDict) (Value, error) {
+func EvalOptions(opts *syntax.FileOptions, thread *Thread, filename string, src any, env StringDict) (Value, error) {
 	expr, err := opts.ParseExpr(filename, src, 0)
 	if err != nil {
 		return nil, err
@@ -626,13 +625,13 @@ func EvalExprOptions(opts *syntax.FileOptions, thread *Thread, expr syntax.Expr,
 //
 // Deprecated: use [ExprFuncOptions] with [syntax.FileOptions] instead,
 // because this function relies on legacy global variables.
-func ExprFunc(filename string, src interface{}, env StringDict) (*Function, error) {
+func ExprFunc(filename string, src any, env StringDict) (*Function, error) {
 	return ExprFuncOptions(syntax.LegacyFileOptions(), filename, src, env)
 }
 
 // ExprFunc returns a no-argument function
 // that evaluates the expression whose source is src.
-func ExprFuncOptions(options *syntax.FileOptions, filename string, src interface{}, env StringDict) (*Function, error) {
+func ExprFuncOptions(options *syntax.FileOptions, filename string, src any, env StringDict) (*Function, error) {
 	expr, err := options.ParseExpr(filename, src, 0)
 	if err != nil {
 		return nil, err
@@ -702,7 +701,7 @@ func getAttr(x Value, name string) (Value, error) {
 func setField(x Value, name string, y Value) error {
 	if x, ok := x.(HasSetField); ok {
 		err := x.SetField(name, y)
-		if _, ok := err.(NoSuchAttrError); ok {
+		if is[NoSuchAttrError](err) {
 			// No such field: check spelling.
 			if n := spell.Nearest(name, x.AttrNames()); n != "" {
 				err = fmt.Errorf("%s (did you mean .%s?)", err, n)
@@ -809,6 +808,10 @@ func Binary(op syntax.Token, x, y Value) (Value, error) {
 		switch x := x.(type) {
 		case String:
 			if y, ok := y.(String); ok {
+				return x + y, nil
+			}
+		case Bytes:
+			if y, ok := y.(Bytes); ok {
 				return x + y, nil
 			}
 		case Int:
@@ -1252,6 +1255,11 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		}
 	}
 
+	// End the caller's span, whether the caller is
+	// a Starlark function or a built-in calling back into Starlark.
+	// If the caller has no span (as during LOAD), don't start one on return.
+	resume := thread.endProfSpan()
+
 	thread.stack = append(thread.stack, fr) // push
 
 	fr.callable = c
@@ -1270,6 +1278,10 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		*fr = frame{}
 
 		thread.stack = thread.stack[:len(thread.stack)-1] // pop
+
+		if resume {
+			thread.beginProfSpan() // resume the caller's span
+		}
 	}()
 
 	result, err := c.CallInternal(thread, args, kwargs)
@@ -1280,10 +1292,8 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}
 
 	// Always return an EvalError with an accurate frame.
-	if err != nil {
-		if _, ok := err.(*EvalError); !ok {
-			err = thread.evalError(err)
-		}
+	if err != nil && !is[*EvalError](err) {
+		err = thread.evalError(err)
 	}
 
 	return result, err
@@ -1434,7 +1444,7 @@ func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
 		return nil
 	}
 
-	cond := func(x bool, y, z interface{}) interface{} {
+	cond := func(x bool, y, z any) any {
 		if x {
 			return y
 		}
@@ -1522,7 +1532,7 @@ func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
 		for ; i < nparams; i++ {
 			if locals[i] == nil {
 				dflt := fn.defaults[i-m]
-				if _, ok := dflt.(mandatory); ok {
+				if is[mandatory](dflt) {
 					missing = append(missing, paramIdents[i].Name)
 					continue
 				}

@@ -1,7 +1,7 @@
-From 9bfb3464564ed1573014c43e61c13f92065d2691 Mon Sep 17 00:00:00 2001
+From 7a05eab5f92ad7d4658477b7ff0c201b7518d8b8 Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
 Date: Tue, 3 Feb 2026 04:30:06 -0800
-Subject: [PATCH 1/9] feat: add OnExec callback for coverage instrumentation
+Subject: [PATCH] feat: add OnExec callback for coverage instrumentation
 
 Add Thread.OnExec callback invoked before each bytecode instruction.
 This enables coverage collection, debugging, and tracing use cases.
@@ -21,10 +21,10 @@ TODO(upstream): trim verbose comments to match codebase style before proposing.
  4 files changed, 127 insertions(+), 1 deletion(-)
 
 diff --git a/starlark/eval.go b/starlark/eval.go
-index 04e1a02a68485ed92b344a3a2fef0f56546a8d7d..8a67cbf16a7ca138a03b8632775f01b33c665703 100644
+index f0f708cc7ae2e1bb45c2dd3165a2b7d5e69806cf..5ada070c9ee29fc4851fa0fd922511c5f85b2f10 100644
 --- a/starlark/eval.go
 +++ b/starlark/eval.go
-@@ -51,6 +51,14 @@ type Thread struct {
+@@ -50,6 +50,14 @@ type Thread struct {
  	// The default behavior is to call thread.Cancel("too many steps").
  	OnMaxSteps func(thread *Thread)
  
@@ -40,7 +40,7 @@ index 04e1a02a68485ed92b344a3a2fef0f56546a8d7d..8a67cbf16a7ca138a03b8632775f01b3
  	// by this thread. It is incremented by the interpreter. It may be used
  	// as a measure of the approximate cost of Starlark execution, by
 diff --git a/starlark/eval_test.go b/starlark/eval_test.go
-index 637c30d445b29e2719089ba760f8b4973235fd90..ac70ca913da1a1e4edf27fc3f2902928c6bcab1e 100644
+index 4843168638c351ffcf124bf15ee3d88d57de58b4..841c47ccae4ee7014d8cc29499961926490b5ab7 100644
 --- a/starlark/eval_test.go
 +++ b/starlark/eval_test.go
 @@ -15,6 +15,7 @@ import (
@@ -51,8 +51,8 @@ index 637c30d445b29e2719089ba760f8b4973235fd90..ac70ca913da1a1e4edf27fc3f2902928
  	"testing"
  
  	"go.starlark.net/internal/chunkedfile"
-@@ -1215,3 +1216,110 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
- 		t.Errorf("got %s, want %s", got, want)
+@@ -1247,3 +1248,110 @@ func TestUnpackArgNoEscape(t *testing.T) {
+ 		t.Errorf("AllocsPerRun = %v, want none", n)
  	}
  }
 +
@@ -163,11 +163,11 @@ index 637c30d445b29e2719089ba760f8b4973235fd90..ac70ca913da1a1e4edf27fc3f2902928
 +	t.Logf("Line coverage: %v", coverage)
 +}
 diff --git a/starlark/interp.go b/starlark/interp.go
-index a0af4cbb6d81c85eee0c7d8a7f76239bb7592626..4fe8b8ee51b6db20e73d72f4c08b522697cb6447 100644
+index ff1b0b284201422264bf179caaa8fc8e38d77c95..e99e74bc3f6189844ee1d6807fd72f45234e608a 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
-@@ -122,6 +122,10 @@ loop:
- 
+@@ -120,6 +120,10 @@ loop:
+ 	for {
  		fr.pc = pc
  
 +		if thread.OnExec != nil {
@@ -178,10 +178,10 @@ index a0af4cbb6d81c85eee0c7d8a7f76239bb7592626..4fe8b8ee51b6db20e73d72f4c08b5226
  		pc++
  		var arg uint32
 diff --git a/starlark/value.go b/starlark/value.go
-index a1948ed2644fcc3645f7276bc261f20e53fc1fab..590a3654ac80644ac5ddd60edd0bdb18bc5ecf22 100644
+index 8cc3b015f826f04512d8dffebfc4dd68d02b7bb4..6a9ddf92ad361c15e98c4224a4b7d0fb1124ad5c 100644
 --- a/starlark/value.go
 +++ b/starlark/value.go
-@@ -770,7 +770,13 @@ func (fn *Function) Module() *Module       { return fn.module }
+@@ -772,7 +772,13 @@ func (fn *Function) Module() *Module       { return fn.module }
  func (fn *Function) Globals() StringDict { return fn.module.Globals() }
  
  func (fn *Function) Position() syntax.Position { return fn.funcode.Pos }
@@ -196,3 +196,6 @@ index a1948ed2644fcc3645f7276bc261f20e53fc1fab..590a3654ac80644ac5ddd60edd0bdb18
  func (fn *Function) NumKwonlyParams() int      { return fn.funcode.NumKwonlyParams }
  
  // Param returns the name and position of the ith parameter,
+-- 
+2.56.0
+

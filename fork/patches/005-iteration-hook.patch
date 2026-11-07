@@ -1,7 +1,7 @@
-From da5a35fe16a6224bf1d4adf4c7cb6957482372e2 Mon Sep 17 00:00:00 2001
+From 7f5605b082031ce83adb9e618c77e76c2d81a60d Mon Sep 17 00:00:00 2001
 From: Alberto Cavalcante <54247214+albertocavalcante@users.noreply.github.com>
 Date: Tue, 3 Feb 2026 11:12:02 -0800
-Subject: [PATCH 5/9] feat: add OnIteration callback for loop coverage
+Subject: [PATCH] feat: add OnIteration callback for loop coverage
  instrumentation
 
 Add Thread.OnIteration callback invoked after each for-loop iteration
@@ -30,10 +30,10 @@ TODO(upstream): trim verbose comments to match codebase style before proposing.
  3 files changed, 111 insertions(+), 1 deletion(-)
 
 diff --git a/starlark/eval.go b/starlark/eval.go
-index 749fea55e0b285028acf2029cd434f23e4474104..bf8e95cf60a5f05087fa16e399e69e548db8ee27 100644
+index 74952b2107a1a32c9e64ae8f9565728ecce1f912..95d21d4f641d75628ba3e741a0962788c5be292f 100644
 --- a/starlark/eval.go
 +++ b/starlark/eval.go
-@@ -79,6 +79,13 @@ type Thread struct {
+@@ -78,6 +78,13 @@ type Thread struct {
  	// TODO(upstream): trim verbose comments to match codebase style before proposing.
  	OnFunctionExit func(fn *Function, result Value)
  
@@ -48,10 +48,10 @@ index 749fea55e0b285028acf2029cd434f23e4474104..bf8e95cf60a5f05087fa16e399e69e54
  	// by this thread. It is incremented by the interpreter. It may be used
  	// as a measure of the approximate cost of Starlark execution, by
 diff --git a/starlark/eval_test.go b/starlark/eval_test.go
-index 0de291e73151cbc6fa35aa2bb1f96b6903f33190..f0fca6cf3ddafbd42b504d2a306a3afa74b8f027 100644
+index 2e1eb5b0574024fc4a6129502bf424b921533f6a..26150d41938df0b51585deee5f4747373247070b 100644
 --- a/starlark/eval_test.go
 +++ b/starlark/eval_test.go
-@@ -1567,3 +1567,100 @@ c = identity([1, 2, 3])
+@@ -1599,3 +1599,100 @@ c = identity([1, 2, 3])
  
  	t.Logf("Captured results: %v", results)
  }
@@ -153,10 +153,10 @@ index 0de291e73151cbc6fa35aa2bb1f96b6903f33190..f0fca6cf3ddafbd42b504d2a306a3afa
 +	t.Log("Empty loop correctly fired OnIteration with continued=false")
 +}
 diff --git a/starlark/interp.go b/starlark/interp.go
-index 9ab1b7e2b5d11d6ae79562dac449278432fd630a..a77054f2106f04fbea66cab1354652f5bcf930ff 100644
+index 2e0524ed69969bb7f551eb8cbcc39f9826a91b1f..7fd1ed1de6ad33f469e6f9d0e9a58bf92745e7f9 100644
 --- a/starlark/interp.go
 +++ b/starlark/interp.go
-@@ -414,11 +414,17 @@ loop:
+@@ -423,11 +423,17 @@ loop:
  
  		case compile.ITERJMP:
  			iter := iterstack[len(iterstack)-1]
@@ -175,3 +175,6 @@ index 9ab1b7e2b5d11d6ae79562dac449278432fd630a..a77054f2106f04fbea66cab1354652f5
  
  		case compile.ITERPOP:
  			n := len(iterstack) - 1
+-- 
+2.56.0
+
