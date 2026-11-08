@@ -35,7 +35,11 @@ trap 'rm -rf "$recovery_dir"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-go build -o "$recovery_dir/verify" ./fork
+# Temporary data may live on a noexec mount. Build only the reviewed verifier
+# beside this executable checkout; historical checkouts remain data in TMPDIR.
+verifier_dir=$(mktemp -d "$PWD/.starlark-recovery-exec.XXXXXX")
+trap 'rm -rf "$recovery_dir" "$verifier_dir"' EXIT
+go build -o "$verifier_dir/verify" ./fork
 for revision in "$current" "$historical"; do
   checkout="$recovery_dir/$revision"
   git -c core.hooksPath=/dev/null clone --no-local --no-tags --no-checkout -- "$source_repo" "$checkout"
@@ -50,22 +54,22 @@ for revision in "$current" "$historical"; do
   archive="refs/tags/upstream/$upstream"
   git -C "$checkout" fetch --no-tags -- "$archive_source" "$archive:$archive"
   [ "$(git -C "$checkout" rev-parse "$archive^{commit}")" = "$upstream" ]
-  "$recovery_dir/verify" -repo "$checkout" -revision "$revision"
+  "$verifier_dir/verify" -repo "$checkout" -revision "$revision"
 
   git -C "$checkout" update-ref -d "$archive"
-  if "$recovery_dir/verify" -repo "$checkout" -revision "$revision" >"$recovery_dir/negative.log" 2>&1; then
+  if "$verifier_dir/verify" -repo "$checkout" -revision "$revision" >"$recovery_dir/negative.log" 2>&1; then
     echo 'missing archive unexpectedly verified' >&2
     exit 1
   fi
   grep -q 'fetch the recorded archive ref first' "$recovery_dir/negative.log"
   git -C "$checkout" update-ref "$archive" "$revision"
-  if "$recovery_dir/verify" -repo "$checkout" -revision "$revision" >"$recovery_dir/negative.log" 2>&1; then
+  if "$verifier_dir/verify" -repo "$checkout" -revision "$revision" >"$recovery_dir/negative.log" 2>&1; then
     echo 'moved archive unexpectedly verified' >&2
     exit 1
   fi
   grep -q 'upstream archive identity mismatch' "$recovery_dir/negative.log"
   git -C "$checkout" update-ref "$archive" "$upstream"
-  "$recovery_dir/verify" -repo "$checkout" -revision "$revision"
+  "$verifier_dir/verify" -repo "$checkout" -revision "$revision"
   printf 'Recovered %s; missing/moved archive negatives rejected.\n' "$revision"
   rm -rf "$checkout"
 done

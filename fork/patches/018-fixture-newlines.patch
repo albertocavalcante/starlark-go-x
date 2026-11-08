@@ -1,0 +1,73 @@
+diff --git a/internal/chunkedfile/chunkedfile.go b/internal/chunkedfile/chunkedfile.go
+index fb1c0154f41a8837822a0a206822327930cf390a..9768fe05df715f2309c6d9831455c203954fbcbb 100644
+--- a/internal/chunkedfile/chunkedfile.go
++++ b/internal/chunkedfile/chunkedfile.go
+@@ -1,4 +1,5 @@
+ // Copyright 2017 The Bazel Authors. All rights reserved.
++// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+@@ -28,7 +29,6 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"regexp"
+-	"runtime"
+ 	"strconv"
+ 	"strings"
+ )
+@@ -63,12 +63,9 @@ func Read(filename string, report Reporter) (chunks []Chunk) {
+ 	}
+ 	linenum := 1
+ 
+-	eol := "\n"
+-	if runtime.GOOS == "windows" {
+-		eol = "\r\n"
+-	}
+-
+-	for i, chunk := range strings.Split(string(data), eol+"---"+eol) {
++	// Fixture newline bytes depend on checkout configuration, not host OS.
++	text := strings.ReplaceAll(string(data), "\r\n", "\n")
++	for i, chunk := range strings.Split(text, "\n---\n") {
+ 		if debug {
+ 			fmt.Printf("chunk %d at line %d: %s\n", i, linenum, chunk)
+ 		}
+diff --git a/internal/chunkedfile/newlines_test.go b/internal/chunkedfile/newlines_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..4c0a06097104386971c0ffd891a09f5236d01fe2
+--- /dev/null
++++ b/internal/chunkedfile/newlines_test.go
+@@ -0,0 +1,33 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package chunkedfile
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestReadNewlines(t *testing.T) {
++	for _, newline := range []string{"\n", "\r\n"} {
++		t.Run(strings.ReplaceAll(newline, "\n", "LF"), func(t *testing.T) {
++			filename := filepath.Join(t.TempDir(), "fixture.star")
++			source := strings.Join([]string{"first", "---", `second ### "expected"`, ""}, newline)
++			if err := os.WriteFile(filename, []byte(source), 0600); err != nil {
++				t.Fatal(err)
++			}
++			chunks := Read(filename, t)
++			if len(chunks) != 2 {
++				t.Fatalf("got %d chunks, want 2", len(chunks))
++			}
++			if chunks[0].Source != "first" || chunks[1].Source != "\n\nsecond ### \"expected\"\n" {
++				t.Fatalf("wrong source/line padding: %q, %q", chunks[0].Source, chunks[1].Source)
++			}
++			chunks[1].GotError(3, "expected")
++			chunks[1].Done()
++		})
++	}
++}

@@ -132,7 +132,10 @@ Missing or mismatched archives must fail. Run `fork/recover.sh "$PWD"` from a
 reviewed checkout to reconstruct its committed revision and historical `b2230ce`
 using the fork's actual remote archives. The harness builds only the current
 verifier, uses fresh transport clones without alternates, checks missing/moved
-archive failures and removes temporary clones. It needs Go, Git and jq plus access
+archive failures and removes temporary clones. It builds the reviewed verifier
+in a temporary directory within the writable checkout, so `TMPDIR` may remain
+mounted `noexec`; temporary source clones are never executed. Both temporary
+directories are removed on exit. It needs Go, Git and jq plus access
 to the fork; it never fetches from Google. The read-only **Archive recovery**
 workflow repeats this on PRs, trunk pushes, weekly and on manual dispatch. A
 successful manual run does not establish that a scheduled event was delivered.

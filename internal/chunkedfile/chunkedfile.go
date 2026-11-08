@@ -1,4 +1,5 @@
 // Copyright 2017 The Bazel Authors. All rights reserved.
+// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -28,7 +29,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -63,12 +63,9 @@ func Read(filename string, report Reporter) (chunks []Chunk) {
 	}
 	linenum := 1
 
-	eol := "\n"
-	if runtime.GOOS == "windows" {
-		eol = "\r\n"
-	}
-
-	for i, chunk := range strings.Split(string(data), eol+"---"+eol) {
+	// Fixture newline bytes depend on checkout configuration, not host OS.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	for i, chunk := range strings.Split(text, "\n---\n") {
 		if debug {
 			fmt.Printf("chunk %d at line %d: %s\n", i, linenum, chunk)
 		}

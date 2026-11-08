@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   compare:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
     permissions:
       contents: read
     timeout-minutes: 5

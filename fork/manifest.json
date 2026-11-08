@@ -12,7 +12,9 @@
       "file": "001-execution-hook.patch",
       "sha256": "2e14bc2b66c4d0450385ab653641acca7d38d0e6a265c23e2c4ab74a54ed310c",
       "reason": "Instruction callbacks and PositionAt for source-mapped instrumentation.",
-      "dependencies": [],
+      "dependencies": [
+
+      ],
       "tests": [
         "go test ./starlark -run TestOnExec"
       ],
@@ -206,6 +208,48 @@
         "fork/recover.sh \"$PWD\""
       ],
       "upstream_disposition": "fork maintenance automation"
+    },
+    {
+      "id": "resource-budget",
+      "file": "016-resource-budget.patch",
+      "sha256": "52edb6aabc48e95887e54d87ddf0b8603626a2cbd4b14a5480fd72bd3ab5d832",
+      "reason": "Charge logical repetition output before allocation and let cooperating hosts charge declared work; other allocation paths remain unmetered.",
+      "dependencies": [
+        "hook-panic-contracts"
+      ],
+      "tests": [
+        "go test ./starlark -run TestBudget",
+        "go test ./starlark -run ^$ -fuzz ^FuzzBudgetCharge$ -fuzztime=3s -parallel=1"
+      ],
+      "upstream_disposition": "independent fork API/maintenance"
+    },
+    {
+      "id": "runmux-routing",
+      "file": "017-runmux-routing.patch",
+      "sha256": "0719bf1d9ece56c0e87ebeb184b173deb1121b1f9fd27f9dd01185e40eee4f91",
+      "reason": "Route Linux tests, archive recovery and upstream drift through Runmux; prove native ARM64 non-root execution and retain native macOS/Windows cells.",
+      "dependencies": [
+        "maintenance-ci",
+        "archive-recovery",
+        "upstream-drift"
+      ],
+      "tests": [
+        "actionlint .github/workflows/tests.yml .github/workflows/recovery.yml .github/workflows/upstream.yml"
+      ],
+      "upstream_disposition": "independent fork API/maintenance"
+    },
+    {
+      "id": "fixture-newlines",
+      "file": "018-fixture-newlines.patch",
+      "sha256": "a532682f6cfac29d6cbb7cbcfcabdae55aa5b2d44234482823f6edde7bf3e9ec",
+      "reason": "Read LF and CRLF chunked fixtures on every host, independent of Git checkout newline settings.",
+      "dependencies": [
+
+      ],
+      "tests": [
+        "go test ./internal/chunkedfile -run TestReadNewlines"
+      ],
+      "upstream_disposition": "test harness portability fix"
     }
   ]
 }

@@ -1,0 +1,72 @@
+diff --git a/.github/workflows/recovery.yml b/.github/workflows/recovery.yml
+index 45428056cdcbe8ad9345342ba8d2392723a7620a..8649626245c7cd8732739f486fb508461ac26bcd 100644
+--- a/.github/workflows/recovery.yml
++++ b/.github/workflows/recovery.yml
+@@ -13,7 +13,7 @@ concurrency:
+   cancel-in-progress: true
+ jobs:
+   recover:
+-    runs-on: ubuntu-24.04
++    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
+     permissions:
+       contents: read
+     timeout-minutes: 10
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index e3cbd8c7468b529d159639df19c8695c108b7f66..5730205c0b167d3874bb162deb7aca6e811d0d7c 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -9,6 +9,18 @@ concurrency:
+   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+   cancel-in-progress: true
+ jobs:
++  runner-check:
++    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
++    permissions: {}
++    timeout-minutes: 5
++    steps:
++      - name: Verify native unprivileged Linux runner
++        shell: bash
++        run: |
++          test "$(uname -s)" = Linux
++          test "$(uname -m)" = aarch64
++          test "$(id -u)" -ne 0
++          printf 'platform=%s/%s uid=%s\n' "$(uname -s)" "$(uname -m)" "$(id -u)"
+   build:
+     permissions:
+       contents: read
+@@ -18,7 +30,8 @@ jobs:
+       matrix:
+         os: [ubuntu-24.04, macos-15, windows-2025]
+         go-version: [1.25.x, 1.26.x, 1.27.x]
+-    runs-on: ${{ matrix.os }}
++    # Linux uses Runmux; native macOS/Windows remain explicit matrix cells.
++    runs-on: ${{ matrix.os == 'ubuntu-24.04' && (vars.CI_LINUX_RUNNER || 'air-ci') || matrix.os }}
+     steps:
+       - name: Install Go
+         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+@@ -28,6 +41,12 @@ jobs:
+         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: false
++      - name: Use executable Go temporary directory on Linux
++        if: runner.os == 'Linux'
++        shell: bash
++        run: |
++          go_tmp=$(mktemp -d "$RUNNER_TEMP/starlark-go.XXXXXX")
++          printf 'GOTMPDIR=%s\n' "$go_tmp" >>"$GITHUB_ENV"
+       - name: Run tests
+         shell: bash
+         run: internal/test.sh
+diff --git a/.github/workflows/upstream.yml b/.github/workflows/upstream.yml
+index 71223dec71315a71cdbdc347027a634549d40f5d..32abf6b1969001a5a353c482fb8d878cedfe5e20 100644
+--- a/.github/workflows/upstream.yml
++++ b/.github/workflows/upstream.yml
+@@ -10,7 +10,7 @@ concurrency:
+   cancel-in-progress: true
+ jobs:
+   compare:
+-    runs-on: ubuntu-24.04
++    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
+     permissions:
+       contents: read
+     timeout-minutes: 5
