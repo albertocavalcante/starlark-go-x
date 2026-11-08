@@ -250,6 +250,21 @@
         "go test ./internal/chunkedfile -run TestReadNewlines"
       ],
       "upstream_disposition": "test harness portability fix"
+    },
+    {
+      "id": "mapped-int-pointer",
+      "file": "019-mapped-int-pointer.patch",
+      "sha256": "950f1b9d090f07b58d27ae8b1e520e3058e52df42f649e454f03d2f07eb0e2a9",
+      "reason": "Retain the mmap integer region as a pointer and derive bounded offsets with unsafe.Add; preserve unpack allocation/lifetime evidence while documenting its remaining vet diagnostic.",
+      "dependencies": [
+
+      ],
+      "tests": [
+        "go test ./starlark -run TestIntPointer",
+        "go test ./starlark -run TestReflectUnpack",
+        "go test -gcflags=all=-d=checkptr=2 ./starlark -run ^TestIntPointerBoundariesSurviveGC$"
+      ],
+      "upstream_disposition": "pointer representation hardening; existing unpack diagnostic remains visible"
     }
   ]
 }

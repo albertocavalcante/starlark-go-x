@@ -1,5 +1,9 @@
 //go:build (linux || darwin || dragonfly || freebsd || netbsd || solaris) && (amd64 || arm64 || mips64x || ppc64 || ppc64le || loong64 || s390x)
 
+// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package starlark
 
 // This file defines an optimized Int implementation for 64-bit machines
@@ -44,7 +48,7 @@ type intImpl unsafe.Pointer
 
 // get returns the (small, big) arms of the union.
 func (i Int) get() (int64, *big.Int) {
-	if smallints == 0 {
+	if smallints == nil {
 		// optimization disabled
 		if x := (*big.Int)(i.impl); isSmall(x) {
 			return x.Int64(), nil
@@ -53,37 +57,37 @@ func (i Int) get() (int64, *big.Int) {
 		}
 	}
 
-	if ptr := uintptr(i.impl); ptr >= smallints && ptr < smallints+1<<32 {
-		return math.MinInt32 + int64(ptr-smallints), nil
+	base := uintptr(smallints)
+	if ptr := uintptr(i.impl); ptr >= base && ptr-base < 1<<32 {
+		return math.MinInt32 + int64(ptr-base), nil
 	}
 	return 0, (*big.Int)(i.impl)
 }
 
 // Precondition: math.MinInt32 <= x && x <= math.MaxInt32
 func makeSmallInt(x int64) Int {
-	if smallints == 0 {
+	if smallints == nil {
 		// optimization disabled
 		return Int{intImpl(big.NewInt(x))}
 	}
 
-	return Int{intImpl(uintptr(x-math.MinInt32) + smallints)}
+	return Int{intImpl(unsafe.Add(smallints, uintptr(x-math.MinInt32)))}
 }
 
 // Precondition: x cannot be represented as int32.
 func makeBigInt(x *big.Int) Int { return Int{intImpl(x)} }
 
-// smallints is the base address of a 2^32 byte memory region.
+// smallints points to the base of a 2^32 byte memory region.
 // Pointers to addresses in this region represent int32 values.
-// We assume smallints is not at the very top of the address space.
 //
-// Zero means the optimization is disabled and all Ints allocate a big.Int.
+// Nil means the optimization is disabled and all Ints allocate a big.Int.
 var smallints = reserveAddresses(1 << 32)
 
-func reserveAddresses(len int) uintptr {
+func reserveAddresses(len int) unsafe.Pointer {
 	b, err := unix.Mmap(-1, 0, len, unix.PROT_READ, unix.MAP_PRIVATE|unix.MAP_ANON)
 	if err != nil {
 		log.Printf("Starlark failed to allocate 4GB address space: %v. Integer performance may suffer.", err)
-		return 0 // optimization disabled
+		return nil // optimization disabled
 	}
-	return uintptr(unsafe.Pointer(&b[0]))
+	return unsafe.Pointer(unsafe.SliceData(b))
 }
