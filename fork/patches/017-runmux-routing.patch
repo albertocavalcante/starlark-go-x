@@ -12,7 +12,7 @@ index 45428056cdcbe8ad9345342ba8d2392723a7620a..8649626245c7cd8732739f486fb50846
        contents: read
      timeout-minutes: 10
 diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
-index e3cbd8c7468b529d159639df19c8695c108b7f66..96da5c6bbc3f227f022f273d54f1703524a8adab 100644
+index e3cbd8c7468b529d159639df19c8695c108b7f66..5730205c0b167d3874bb162deb7aca6e811d0d7c 100644
 --- a/.github/workflows/tests.yml
 +++ b/.github/workflows/tests.yml
 @@ -9,6 +9,18 @@ concurrency:
@@ -44,6 +44,19 @@ index e3cbd8c7468b529d159639df19c8695c108b7f66..96da5c6bbc3f227f022f273d54f17035
      steps:
        - name: Install Go
          uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+@@ -28,6 +41,12 @@ jobs:
+         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: false
++      - name: Use executable Go temporary directory on Linux
++        if: runner.os == 'Linux'
++        shell: bash
++        run: |
++          go_tmp=$(mktemp -d "$RUNNER_TEMP/starlark-go.XXXXXX")
++          printf 'GOTMPDIR=%s\n' "$go_tmp" >>"$GITHUB_ENV"
+       - name: Run tests
+         shell: bash
+         run: internal/test.sh
 diff --git a/.github/workflows/upstream.yml b/.github/workflows/upstream.yml
 index 71223dec71315a71cdbdc347027a634549d40f5d..32abf6b1969001a5a353c482fb8d878cedfe5e20 100644
 --- a/.github/workflows/upstream.yml
