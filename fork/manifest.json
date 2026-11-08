@@ -12,9 +12,7 @@
       "file": "001-execution-hook.patch",
       "sha256": "2e14bc2b66c4d0450385ab653641acca7d38d0e6a265c23e2c4ab74a54ed310c",
       "reason": "Instruction callbacks and PositionAt for source-mapped instrumentation.",
-      "dependencies": [
-
-      ],
+      "dependencies": [],
       "tests": [
         "go test ./starlark -run TestOnExec"
       ],
@@ -243,9 +241,7 @@
       "file": "018-fixture-newlines.patch",
       "sha256": "a532682f6cfac29d6cbb7cbcfcabdae55aa5b2d44234482823f6edde7bf3e9ec",
       "reason": "Read LF and CRLF chunked fixtures on every host, independent of Git checkout newline settings.",
-      "dependencies": [
-
-      ],
+      "dependencies": [],
       "tests": [
         "go test ./internal/chunkedfile -run TestReadNewlines"
       ],
@@ -256,15 +252,28 @@
       "file": "019-mapped-int-pointer.patch",
       "sha256": "950f1b9d090f07b58d27ae8b1e520e3058e52df42f649e454f03d2f07eb0e2a9",
       "reason": "Retain the mmap integer region as a pointer and derive bounded offsets with unsafe.Add; preserve unpack allocation/lifetime evidence while documenting its remaining vet diagnostic.",
-      "dependencies": [
-
-      ],
+      "dependencies": [],
       "tests": [
         "go test ./starlark -run TestIntPointer",
         "go test ./starlark -run TestReflectUnpack",
         "go test -gcflags=all=-d=checkptr=2 ./starlark -run ^TestIntPointerBoundariesSurviveGC$"
       ],
       "upstream_disposition": "pointer representation hardening; existing unpack diagnostic remains visible"
+    },
+    {
+      "id": "sequence-growth-budget",
+      "file": "020-sequence-growth-budget.patch",
+      "sha256": "59fe5a2bb48627f0e45dc8a5ecb0840bf5fdfb0fce6de6a145190f7ca10d6baf",
+      "reason": "Pre-charge dynamic sequence concatenation and list literal/comprehension output before result allocation or append; preserve explicit unmetered host and mutable collection boundaries.",
+      "dependencies": [
+        "resource-budget"
+      ],
+      "tests": [
+        "go test ./starlark -run ^TestBudget",
+        "go test -race ./starlark -run ^TestBudgetSequence",
+        "go run ./fork -revision HEAD"
+      ],
+      "upstream_disposition": "independent fork logical-resource API; not heap isolation"
     }
   ]
 }

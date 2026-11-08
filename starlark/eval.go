@@ -51,7 +51,7 @@ type Thread struct {
 	// The default behavior is to call thread.Cancel("too many steps").
 	OnMaxSteps func(thread *Thread)
 
-	// Budget optionally limits declared sequence repetition and host resources.
+	// Budget optionally limits declared sequence growth and host resources.
 	// See BudgetUsage for the intentionally limited accounting coverage.
 	Budget *Budget
 
@@ -818,10 +818,16 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
 		switch x := x.(type) {
 		case String:
 			if y, ok := y.(String); ok {
+				if err := budget.Charge(BudgetUsage{Bytes: uint64(len(x)) + uint64(len(y))}); err != nil {
+					return nil, err
+				}
 				return x + y, nil
 			}
 		case Bytes:
 			if y, ok := y.(Bytes); ok {
+				if err := budget.Charge(BudgetUsage{Bytes: uint64(len(x)) + uint64(len(y))}); err != nil {
+					return nil, err
+				}
 				return x + y, nil
 			}
 		case Int:
@@ -848,6 +854,9 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
 			}
 		case *List:
 			if y, ok := y.(*List); ok {
+				if err := budget.Charge(BudgetUsage{Elements: uint64(x.Len()) + uint64(y.Len())}); err != nil {
+					return nil, err
+				}
 				z := make([]Value, 0, x.Len()+y.Len())
 				z = append(z, x.elems...)
 				z = append(z, y.elems...)
@@ -855,6 +864,9 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
 			}
 		case Tuple:
 			if y, ok := y.(Tuple); ok {
+				if err := budget.Charge(BudgetUsage{Elements: uint64(len(x)) + uint64(len(y))}); err != nil {
+					return nil, err
+				}
 				z := make(Tuple, 0, len(x)+len(y))
 				z = append(z, x...)
 				z = append(z, y...)
