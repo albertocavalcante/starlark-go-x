@@ -185,6 +185,18 @@ func TestBudgetSequenceErrorOrderAndOverflow(t *testing.T) {
 	}
 }
 
+func TestBudgetSequenceActiveIteratorMutabilityError(t *testing.T) {
+	items := starlark.NewList([]starlark.Value{starlark.None})
+	iter := items.Iterate()
+	defer iter.Done()
+	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 1})}
+	_, err := starlark.ExecFile(thread, "iteration.star", "def f(items):\n    items += (1,)\nf(items)\n", starlark.StringDict{"items": items})
+	var budgetErr *starlark.BudgetError
+	if err == nil || errors.As(err, &budgetErr) || !strings.Contains(err.Error(), "during iteration") || items.Len() != 1 || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
+		t.Fatalf("active-iterator mutability error changed: %v, %+v", err, thread.Budget.Usage())
+	}
+}
+
 func TestBudgetSequenceByteUnitsAndCompilerFolding(t *testing.T) {
 	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 6})}
 	v, err := starlark.Eval(thread, "unicode.star", `s + s`, starlark.StringDict{"s": starlark.String("雪")})

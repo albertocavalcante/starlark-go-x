@@ -143,10 +143,10 @@ index 0000000000000000000000000000000000000000..11e5811e9df663f543850fa1d47667a9
 +}
 diff --git a/starlark/budget_sequence_test.go b/starlark/budget_sequence_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..f7938d6f4a19c6fe5368e572f399feef85bff490
+index 0000000000000000000000000000000000000000..20f6c380f58aaecbd4f5f07b656a2284c227c85d
 --- /dev/null
 +++ b/starlark/budget_sequence_test.go
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,273 @@
 +// Copyright 2026 Alberto Cavalcante. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -331,6 +331,18 @@ index 0000000000000000000000000000000000000000..f7938d6f4a19c6fe5368e572f399feef
 +		if _, err := starlark.Eval(thread, "empty.star", source, nil); err != nil {
 +			t.Fatalf("empty %s: %v", source, err)
 +		}
++	}
++}
++
++func TestBudgetSequenceActiveIteratorMutabilityError(t *testing.T) {
++	items := starlark.NewList([]starlark.Value{starlark.None})
++	iter := items.Iterate()
++	defer iter.Done()
++	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 1})}
++	_, err := starlark.ExecFile(thread, "iteration.star", "def f(items):\n    items += (1,)\nf(items)\n", starlark.StringDict{"items": items})
++	var budgetErr *starlark.BudgetError
++	if err == nil || errors.As(err, &budgetErr) || !strings.Contains(err.Error(), "during iteration") || items.Len() != 1 || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
++		t.Fatalf("active-iterator mutability error changed: %v, %+v", err, thread.Budget.Usage())
 +	}
 +}
 +
