@@ -12,10 +12,29 @@ index 45428056cdcbe8ad9345342ba8d2392723a7620a..8649626245c7cd8732739f486fb50846
        contents: read
      timeout-minutes: 10
 diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
-index e3cbd8c7468b529d159639df19c8695c108b7f66..918653589a7eaf3c085dbb1c9e928b0c0e0ee486 100644
+index e3cbd8c7468b529d159639df19c8695c108b7f66..96da5c6bbc3f227f022f273d54f1703524a8adab 100644
 --- a/.github/workflows/tests.yml
 +++ b/.github/workflows/tests.yml
-@@ -18,7 +18,8 @@ jobs:
+@@ -9,6 +9,18 @@ concurrency:
+   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+   cancel-in-progress: true
+ jobs:
++  runner-check:
++    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
++    permissions: {}
++    timeout-minutes: 5
++    steps:
++      - name: Verify native unprivileged Linux runner
++        shell: bash
++        run: |
++          test "$(uname -s)" = Linux
++          test "$(uname -m)" = aarch64
++          test "$(id -u)" -ne 0
++          printf 'platform=%s/%s uid=%s\n' "$(uname -s)" "$(uname -m)" "$(id -u)"
+   build:
+     permissions:
+       contents: read
+@@ -18,7 +30,8 @@ jobs:
        matrix:
          os: [ubuntu-24.04, macos-15, windows-2025]
          go-version: [1.25.x, 1.26.x, 1.27.x]

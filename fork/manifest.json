@@ -226,8 +226,8 @@
     {
       "id": "runmux-routing",
       "file": "017-runmux-routing.patch",
-      "sha256": "3c74f13756f63206bdd163205395cdd81c75a956ea6e4544f951cea409eeafd6",
-      "reason": "Route Linux tests, archive recovery and upstream drift through Runmux while retaining explicit native macOS and Windows cells.",
+      "sha256": "6fe4d41bf9981fd20c07bd1b8a373aad9f78d1ab6ebe55f2064e2694e753f64a",
+      "reason": "Route Linux tests, archive recovery and upstream drift through Runmux; prove native ARM64 non-root execution and retain native macOS/Windows cells.",
       "dependencies": [
         "maintenance-ci",
         "archive-recovery",
