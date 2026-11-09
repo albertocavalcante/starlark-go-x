@@ -8,11 +8,12 @@ package bench
 
 import (
 	"fmt"
+
 	"go.starlark.net/starlark"
 )
 
 func hookModes() []bool { return []bool{false, true} }
-func configureHooks(thread *starlark.Thread, active, branching bool) func() error {
+func configureHooks(thread *starlark.Thread, active bool, f fixture) func(uint64) error {
 	var execs, branches, enters, exits, iterations uint64
 	if active {
 		thread.OnExec = func(*starlark.Function, uint32) { execs++ }
@@ -21,9 +22,9 @@ func configureHooks(thread *starlark.Thread, active, branching bool) func() erro
 		thread.OnFunctionExit = func(*starlark.Function, starlark.Value) { exits++ }
 		thread.OnIteration = func(*starlark.Function, uint32, bool) { iterations++ }
 	}
-	return func() error {
-		if active && (execs == 0 || enters == 0 || exits == 0 || iterations == 0 || (branching && branches == 0)) {
-			return fmt.Errorf("inactive hook fixture: exec=%d branch=%d enter=%d exit=%d iteration=%d", execs, branches, enters, exits, iterations)
+	return func(calls uint64) error {
+		if active && (execs == 0 || enters != f.calls*calls || exits != enters || iterations != f.iterations*calls || branches != f.branches*calls) {
+			return fmt.Errorf("hook fixture %s: exec=%d branch=%d enter=%d exit=%d iteration=%d after %d calls", f.name, execs, branches, enters, exits, iterations, calls)
 		}
 		return nil
 	}
