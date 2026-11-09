@@ -75,6 +75,8 @@ validated again before benchstat runs:
 Sample validation rejects truncated rows, invalid iteration/metric values and
 missing, duplicate or unknown metric units before benchstat. Run
 `bash fork/bench/test-samples.sh` for the malformed-input regression fixtures.
+Validation follows this runner's fixed-duration calibration: at most 1e9
+iterations and metric values at most 1e300, rejecting numeric overflow.
 
 Parse appears only in the runtime comparison because it has no Thread modes.
 Do not interpret mixed-mode geomeans as application speed. Old-to-current changes

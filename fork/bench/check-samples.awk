@@ -8,11 +8,13 @@ FILENAME == ARGV[1] {
 /^Benchmark/ {
   name = $1
   sub(/-[0-9]+$/, "", name)
-  valid = (NF >= 8 && NF % 2 == 0 && $2 ~ /^[1-9][0-9]*$/)
+  # Go's fixed-duration benchmark calibration caps iterations at 1e9.
+  valid = (NF >= 8 && NF % 2 == 0 && $2 ~ /^[1-9][0-9]*$/ && $2 + 0 <= 1e9)
   for (unit in units) delete units[unit]
   for (i = 3; i <= NF; i += 2) {
     unit = $(i + 1)
-    if ($i !~ /^[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?$/ ||
+    # Leave ample headroom for real counters, while refusing float overflow.
+    if ($i !~ /^[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?$/ || $i + 0 > 1e300 ||
         unit !~ /^(ns\/op|MB\/s|B\/op|allocs\/op)$/ || units[unit]++) valid = 0
   }
   if (!units["ns/op"] || !units["B/op"] || !units["allocs/op"]) valid = 0

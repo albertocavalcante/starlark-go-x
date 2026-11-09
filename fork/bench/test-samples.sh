@@ -19,7 +19,7 @@ reject() {
 }
 sed '$s/ .*//' "$fixture_dir/valid" >"$fixture_dir/invalid"
 reject truncated-twelfth-row
-for field in iterations duration unit duplicate missing; do
+for field in iterations duration unit duplicate missing overflow count-overflow; do
   awk -v change="$field" '
     NR == 2 {
       if (change == "iterations") $2 = 0
@@ -27,6 +27,8 @@ for field in iterations duration unit duplicate missing; do
       if (change == "unit") $4 = "us/op"
       if (change == "duplicate") $6 = "ns/op"
       if (change == "missing") NF = 4
+      if (change == "overflow") $3 = "1e999"
+      if (change == "count-overflow") $2 = "99999999999999999999999999"
     }
     { print }
   ' "$fixture_dir/valid" >"$fixture_dir/invalid"
