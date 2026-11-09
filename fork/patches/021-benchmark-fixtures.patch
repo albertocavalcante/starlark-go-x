@@ -1,0 +1,36 @@
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index 5730205c0b167d3874bb162deb7aca6e811d0d7c..6078cde8bba2150b8c7cbd8b63fef582fc9e7ba9 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -9,6 +9,31 @@ concurrency:
+   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+   cancel-in-progress: true
+ jobs:
++  benchmark-fixtures:
++    name: Benchmark fixtures
++    runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
++    permissions:
++      contents: read
++    timeout-minutes: 15
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          persist-credentials: false
++      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
++        with:
++          go-version: '1.27.3'
++      - name: Check every pinned benchmark configuration
++        working-directory: fork/bench
++        shell: bash
++        env:
++          GOWORK: 'off'
++        run: |
++          bash test-samples.sh
++          export GOTMPDIR
++          GOTMPDIR=$(mktemp -d "$RUNNER_TEMP/bench-fixtures.XXXXXX")
++          go test -mod=readonly ./...
++          go test -mod=readonly -modfile=fork.go.mod -tags=forkhooks ./...
++          go test -mod=readonly -modfile=current.go.mod -tags=forkhooks,forkbudget ./...
+   runner-check:
+     runs-on: ${{ vars.CI_LINUX_RUNNER || 'air-ci' }}
+     permissions: {}

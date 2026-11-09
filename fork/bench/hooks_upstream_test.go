@@ -9,6 +9,6 @@ package bench
 import "go.starlark.net/starlark"
 
 func hookModes() []bool { return []bool{false} }
-func configureHooks(*starlark.Thread, bool, bool) func() error {
-	return func() error { return nil }
+func configureHooks(*starlark.Thread, bool, fixture) func(uint64) error {
+	return func(uint64) error { return nil }
 }
