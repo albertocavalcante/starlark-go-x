@@ -253,7 +253,7 @@ loop:
 				}
 			}
 			if z == nil {
-				z, err = Binary(syntax.PLUS, x, y)
+				z, err = binaryWithBudget(thread.Budget, syntax.PLUS, x, y)
 				if err != nil {
 					break loop
 				}
@@ -515,7 +515,9 @@ loop:
 			elem := stack[sp-1]
 			list := stack[sp-2].(*List)
 			sp -= 2
-			list.elems = append(list.elems, elem)
+			if err = appendToComprehension(thread.Budget, list, elem); err != nil {
+				break loop
+			}
 
 		case compile.SLICE:
 			x := stack[sp-4]
@@ -592,6 +594,9 @@ loop:
 
 		case compile.MAKELIST:
 			n := int(arg)
+			if err = thread.Budget.Charge(BudgetUsage{Elements: uint64(n)}); err != nil {
+				break loop
+			}
 			elems := make([]Value, n)
 			sp -= n
 			copy(elems, stack[sp:])
@@ -796,3 +801,13 @@ func (c *cell) Freeze() {
 }
 func (c *cell) Truth() Bool           { panic("unreachable") }
 func (c *cell) Hash() (uint32, error) { panic("unreachable") }
+
+// appendToComprehension charges one logical output slot before changing the
+// fresh, mutable comprehension list. Earlier successful appends are not refunded.
+func appendToComprehension(budget *Budget, list *List, elem Value) error {
+	if err := budget.Charge(BudgetUsage{Elements: 1}); err != nil {
+		return err
+	}
+	list.elems = append(list.elems, elem)
+	return nil
+}

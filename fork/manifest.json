@@ -265,6 +265,21 @@
         "go test -gcflags=all=-d=checkptr=2 ./starlark -run ^TestIntPointerBoundariesSurviveGC$"
       ],
       "upstream_disposition": "pointer representation hardening; existing unpack diagnostic remains visible"
+    },
+    {
+      "id": "sequence-growth-budget",
+      "file": "020-sequence-growth-budget.patch",
+      "sha256": "b33662ead73c510f829f41343f9f1b479a2ae31405a0637582bb6e26918bf816",
+      "reason": "Pre-charge dynamic sequence concatenation and list literal/comprehension output before result allocation or append; preserve explicit unmetered host and mutable collection boundaries.",
+      "dependencies": [
+        "resource-budget"
+      ],
+      "tests": [
+        "go test ./starlark -run ^TestBudget",
+        "go test -race ./starlark -run ^TestBudgetSequence",
+        "go run ./fork -revision HEAD"
+      ],
+      "upstream_disposition": "independent fork logical-resource API; not heap isolation"
     }
   ]
 }

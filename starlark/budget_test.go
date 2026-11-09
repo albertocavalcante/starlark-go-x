@@ -31,12 +31,16 @@ func TestBudgetRepeat(t *testing.T) {
 	} {
 		for _, reverse := range []bool{false, true} {
 			t.Run(tc.name+map[bool]string{false: "/right", true: "/left"}[reverse], func(t *testing.T) {
-				source := "def repeat(n):\n    return " + tc.sequence + " * n\n"
+				sequence, err := starlark.Eval(&starlark.Thread{}, "sequence.star", tc.sequence, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				source := "def repeat(n):\n    return sequence * n\n"
 				if reverse {
-					source = "def repeat(n):\n    return n * " + tc.sequence + "\n"
+					source = "def repeat(n):\n    return n * sequence\n"
 				}
 				thread := &starlark.Thread{Budget: starlark.NewBudget(tc.limit)}
-				globals, err := starlark.ExecFile(thread, "repeat.star", source, nil)
+				globals, err := starlark.ExecFile(thread, "repeat.star", source, starlark.StringDict{"sequence": sequence})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -107,21 +111,30 @@ func TestBudgetRejectsLargeRepeat(t *testing.T) {
 }
 
 func TestBudgetUnchargedBoundaries(t *testing.T) {
-	// These paths deliberately remain outside the initial accounting contract.
+	// Host values, ordinary builtins, tuple literals and mutable += remain outside
+	// this accounting contract, including arbitrary iterable-driven extension.
+	items := starlark.NewList(nil)
 	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 1, Elements: 1})}
-	_, err := starlark.ExecFile(thread, "other.star", `def build():
-    answer = "ab" + "cd"
-    items = [1, 2, 3]
-    items += [4]
-    items.append(5)
-build()
-`, nil)
-	if err != nil || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
+	_, err := starlark.ExecFile(thread, "other.star", `def build(items):
+    answer = "".join(("ab", "cd"))
+    items += (1, 2, 3)
+    items.append(4)
+    items.extend((5, 6))
+    return list((answer, items))
+build(items)
+`, starlark.StringDict{"items": items})
+	if err != nil || items.Len() != 6 || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
 		t.Fatalf("uncharged contract changed: %v, %+v", err, thread.Budget.Usage())
 	}
 	// The threadless public API preserves its existing unbudgeted behavior.
-	if _, err := starlark.Binary(syntax.STAR, starlark.String("ab"), starlark.MakeInt(2)); err != nil {
-		t.Fatalf("Binary: %v", err)
+	for _, op := range []syntax.Token{syntax.STAR, syntax.PLUS} {
+		y := starlark.Value(starlark.String("cd"))
+		if op == syntax.STAR {
+			y = starlark.MakeInt(2)
+		}
+		if _, err := starlark.Binary(op, starlark.String("ab"), y); err != nil {
+			t.Fatalf("Binary: %v", err)
+		}
 	}
 }
 

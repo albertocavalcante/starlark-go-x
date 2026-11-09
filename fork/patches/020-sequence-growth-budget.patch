@@ -1,0 +1,586 @@
+diff --git a/starlark/budget.go b/starlark/budget.go
+index cdf166ae6cb91f361da8aced91f7d268e0197588..eb1911955b110c58b799b8c0de402286db83cbf2 100644
+--- a/starlark/budget.go
++++ b/starlark/budget.go
+@@ -10,9 +10,11 @@ import (
+ )
+ 
+ // BudgetUsage counts declared logical resources, not Go heap or CPU usage.
+-// The interpreter charges Bytes for string/bytes repetition results and Elements
+-// for list/tuple repetition results. Work is charged only by cooperating hosts.
+-// Other operators, constructors, parsing, and builtins are not charged automatically.
++// The interpreter charges Bytes for string/bytes repetition and concatenation
++// results, and Elements for list/tuple repetition and concatenation results,
++// list literal slots, and each comprehension append. Work is charged only by
++// cooperating hosts. Other operations and builtins are not charged automatically.
++// These counts exclude operand evaluation, VM frames and spare backing capacity.
+ type BudgetUsage struct {
+ 	Bytes, Elements, Work uint64
+ }
+diff --git a/starlark/budget_sequence_bench_test.go b/starlark/budget_sequence_bench_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb112e9afbee9b05c81af427605cac46d6c26939
+--- /dev/null
++++ b/starlark/budget_sequence_bench_test.go
+@@ -0,0 +1,44 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark_test
++
++import (
++	"testing"
++
++	"go.starlark.net/starlark"
++)
++
++func BenchmarkBudgetSequence(b *testing.B) {
++	for _, tc := range []struct{ name, source string }{
++		{"Concat", "def f(x):\n    return x + x\n"},
++		{"Literal", "def f(x):\n    return [x, x, x, x]\n"},
++		{"Comprehension", "def f(x):\n    return [x for i in range(16)]\n"},
++	} {
++		for _, enabled := range []bool{false, true} {
++			name := tc.name + "/Nil"
++			if enabled {
++				name = tc.name + "/Budget"
++			}
++			b.Run(name, func(b *testing.B) {
++				thread := &starlark.Thread{}
++				if enabled {
++					thread.Budget = starlark.NewBudget(starlark.BudgetUsage{})
++				}
++				globals, err := starlark.ExecFile(thread, "benchmark.star", tc.source, nil)
++				if err != nil {
++					b.Fatal(err)
++				}
++				args := starlark.Tuple{starlark.String("abcdefgh")}
++				b.ReportAllocs()
++				b.ResetTimer()
++				for range b.N {
++					if _, err := starlark.Call(thread, globals["f"], args, nil); err != nil {
++						b.Fatal(err)
++					}
++				}
++			})
++		}
++	}
++}
+diff --git a/starlark/budget_sequence_internal_test.go b/starlark/budget_sequence_internal_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..11e5811e9df663f543850fa1d47667a9c1fa98cd
+--- /dev/null
++++ b/starlark/budget_sequence_internal_test.go
+@@ -0,0 +1,68 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark
++
++import (
++	"errors"
++	"runtime"
++	"strings"
++	"testing"
++
++	"go.starlark.net/internal/compile"
++)
++
++func TestBudgetSequenceComprehensionAppendAtomic(t *testing.T) {
++	// Exercise both growth and reused-capacity appends. A refused charge must
++	// preserve the complete prefix and backing slice, not just its length.
++	for _, capacity := range []int{1, 4} {
++		elems := make([]Value, 1, capacity)
++		elems[0] = None
++		list := NewList(elems)
++		budget := NewBudget(BudgetUsage{Elements: 1})
++		if err := budget.Charge(BudgetUsage{Elements: 1}); err != nil {
++			t.Fatal(err)
++		}
++		before := list.elems
++		err := appendToComprehension(budget, list, True)
++		var budgetErr *BudgetError
++		if !errors.As(err, &budgetErr) || len(list.elems) != 1 || cap(list.elems) != capacity || &list.elems[0] != &before[0] || list.elems[0] != None || budget.Usage().Elements != 1 {
++			t.Fatalf("refused append mutated list: %v, %v", list, err)
++		}
++		if capacity > 1 && list.elems[:capacity][1] != nil {
++			t.Fatal("refused append wrote spare capacity")
++		}
++	}
++}
++
++func TestBudgetSequenceLiteralBeforeAllocation(t *testing.T) {
++	// Frame/operand allocation and parsing are intentionally outside this guard.
++	// Start measuring at the MAKELIST opcode, after those allocations. A mutation
++	// moving charge below make would allocate a 2 MiB result and fail the test.
++	const n = 1 << 17
++	source := "def f():\n    return [" + strings.Repeat("None,", n) + "]\n"
++	thread := &Thread{Budget: NewBudget(BudgetUsage{Elements: 1})}
++	globals, err := ExecFile(thread, "large-list.star", source, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var before, after runtime.MemStats
++	seen := false
++	thread.OnExec = func(fn *Function, pc uint32) {
++		if compile.Opcode(fn.funcode.Code[pc]) == compile.MAKELIST {
++			seen = true
++			runtime.ReadMemStats(&before)
++		}
++	}
++	_, err = Call(thread, globals["f"], nil, nil)
++	runtime.ReadMemStats(&after)
++	var budgetErr *BudgetError
++	if !seen || !errors.As(err, &budgetErr) || budgetErr.Requested != n || thread.Budget.Usage().Elements != 0 {
++		t.Fatalf("literal was not refused at construction: %v", err)
++	}
++	t.Logf("refused literal allocated %d bytes after MAKELIST", after.TotalAlloc-before.TotalAlloc)
++	if allocated := after.TotalAlloc - before.TotalAlloc; allocated >= 512<<10 {
++		t.Fatalf("refused literal allocated %d bytes after MAKELIST; charge must precede backing allocation", allocated)
++	}
++}
+diff --git a/starlark/budget_sequence_test.go b/starlark/budget_sequence_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..20f6c380f58aaecbd4f5f07b656a2284c227c85d
+--- /dev/null
++++ b/starlark/budget_sequence_test.go
+@@ -0,0 +1,273 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark_test
++
++import (
++	"context"
++	"errors"
++	"math"
++	"os"
++	"os/exec"
++	"runtime"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"go.starlark.net/starlark"
++)
++
++func TestBudgetSequenceConcat(t *testing.T) {
++	for _, tc := range []struct {
++		name, source, resource string
++		limit                  starlark.BudgetUsage
++	}{
++		{"string", `"ab"`, "bytes", starlark.BudgetUsage{Bytes: 4}},
++		{"bytes", `b"ab"`, "bytes", starlark.BudgetUsage{Bytes: 4}},
++		{"list", `[1, 2]`, "elements", starlark.BudgetUsage{Elements: 4}},
++		{"tuple", `(1, 2)`, "elements", starlark.BudgetUsage{Elements: 4}},
++	} {
++		for _, inplace := range []bool{false, true} {
++			if inplace && tc.name == "list" { // Mutable extension is explicitly unmetered.
++				continue
++			}
++			t.Run(tc.name+map[bool]string{false: "/plus", true: "/inplace"}[inplace], func(t *testing.T) {
++				value, err := starlark.Eval(&starlark.Thread{}, "input.star", tc.source, nil)
++				if err != nil {
++					t.Fatal(err)
++				}
++				value.Freeze()
++				source := "def join(a, b):\n    return a + b\n"
++				if inplace {
++					source = "def join(a, b):\n    a += b\n    return a\n"
++				}
++				thread := &starlark.Thread{Budget: starlark.NewBudget(tc.limit)}
++				globals, err := starlark.ExecFile(thread, "concat.star", source, nil)
++				if err != nil {
++					t.Fatal(err)
++				}
++				call := func() (starlark.Value, error) {
++					return starlark.Call(thread, globals["join"], starlark.Tuple{value, value}, nil)
++				}
++				got, err := call()
++				if err != nil || starlark.Len(got) != 4 {
++					t.Fatalf("exact limit: %v, %v", got, err)
++				}
++				if list, ok := got.(*starlark.List); ok {
++					if err := list.Append(starlark.None); err != nil {
++						t.Fatalf("concatenation of frozen lists must return mutable list: %v", err)
++					}
++				}
++				before := thread.Budget.Usage()
++				_, err = call()
++				var budgetErr *starlark.BudgetError
++				var evalErr *starlark.EvalError
++				if !errors.As(err, &budgetErr) || budgetErr.Resource != tc.resource || budgetErr.Requested != 4 || thread.Budget.Usage() != before {
++					t.Fatalf("refused concat: %v, %+v", err, thread.Budget.Usage())
++				}
++				if !errors.As(err, &evalErr) || !strings.Contains(evalErr.Backtrace(), "concat.star:2") || thread.CallStackDepth() != 0 {
++					t.Fatalf("diagnostic/cleanup: %v", err)
++				}
++				if starlark.Len(value) != 2 {
++					t.Fatal("source sequence mutated")
++				}
++				// A fresh nil budget preserves the original result.
++				thread.Budget = nil
++				if _, err := call(); err != nil {
++					t.Fatal(err)
++				}
++			})
++		}
++	}
++}
++
++func TestBudgetSequenceConstruction(t *testing.T) {
++	for _, tc := range []struct {
++		source string
++		used   uint64
++	}{
++		{`[]`, 0}, {`[1, 2, 3]`, 3}, {`[x for x in range(3)]`, 3},
++		{`[x for x in range(6) if x % 2 == 0]`, 3},
++		{`[[x] for x in range(3)]`, 6},
++		{`[x for x in ()]`, 0}, {`[1, 2] + [3]`, 3},
++	} {
++		t.Run(tc.source, func(t *testing.T) {
++			thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: tc.used})}
++			v, err := starlark.Eval(thread, "construct.star", tc.source, nil)
++			if err != nil || thread.Budget.Usage().Elements != tc.used {
++				t.Fatalf("exact limit: %v, %v, %+v", v, err, thread.Budget.Usage())
++			}
++			if list, ok := v.(*starlark.List); !ok || list.Append(starlark.None) != nil {
++				t.Fatal("constructed list must be mutable")
++			}
++		})
++	}
++	for _, source := range []string{`[1, 2, 3]`, `[x for x in range(3)]`} {
++		thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 2})}
++		v, err := starlark.Eval(thread, "refused.star", source, nil)
++		wantUsed := uint64(0)
++		if strings.Contains(source, "for") {
++			wantUsed = 2
++		}
++		var budgetErr *starlark.BudgetError
++		var evalErr *starlark.EvalError
++		if v != nil || !errors.As(err, &budgetErr) || !errors.As(err, &evalErr) || !strings.Contains(evalErr.Backtrace(), "refused.star:1") || thread.Budget.Usage().Elements != wantUsed || thread.CallStackDepth() != 0 {
++			t.Fatalf("construction refusal %s: %v, %v, %+v", source, v, err, thread.Budget.Usage())
++		}
++	}
++}
++
++func TestBudgetSequenceComprehensionCleanupAndSideEffects(t *testing.T) {
++	items := starlark.NewList([]starlark.Value{starlark.None, starlark.None, starlark.None})
++	calls := 0
++	tick := starlark.NewBuiltin("tick", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
++		calls++
++		return starlark.None, nil
++	})
++	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 2})}
++	_, err := starlark.Eval(thread, "cleanup.star", `[tick() for x in items]`, starlark.StringDict{"tick": tick, "items": items})
++	var budgetErr *starlark.BudgetError
++	if !errors.As(err, &budgetErr) || calls != 3 || thread.Budget.Usage().Elements != 2 || thread.CallStackDepth() != 0 {
++		t.Fatalf("comprehension failure order: %v, calls %d, usage %+v", err, calls, thread.Budget.Usage())
++	}
++	if err := items.Append(starlark.None); err != nil {
++		t.Fatalf("failed comprehension retained iterator: %v", err)
++	}
++	thread.Budget = starlark.NewBudget(starlark.BudgetUsage{Elements: 1})
++	_, err = starlark.Eval(thread, "literal-order.star", `[tick(), tick()]`, starlark.StringDict{"tick": tick})
++	if !errors.As(err, &budgetErr) || calls != 5 || thread.Budget.Usage().Elements != 0 {
++		t.Fatalf("literal must evaluate elements before atomic slot charge: %v, calls %d", err, calls)
++	}
++}
++
++func TestBudgetSequenceErrorOrderAndOverflow(t *testing.T) {
++	frozen := starlark.NewList([]starlark.Value{starlark.None})
++	frozen.Freeze()
++	for _, source := range []string{`"x" + 1`, `frozen + ()`, "def f():\n    a = frozen\n    a += (1,)\nf()", `[1 // 0, 2]`} {
++		thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 1, Bytes: 1})}
++		_, err := starlark.ExecFile(thread, "order.star", source, starlark.StringDict{"frozen": frozen})
++		var budgetErr *starlark.BudgetError
++		if err == nil || errors.As(err, &budgetErr) || thread.Budget.Usage() != (starlark.BudgetUsage{}) || frozen.Len() != 1 {
++			t.Fatalf("precedence %s: %v, %+v", source, err, thread.Budget.Usage())
++		}
++	}
++	for _, tc := range []struct {
++		source  string
++		initial starlark.BudgetUsage
++	}{
++		{`s + ""`, starlark.BudgetUsage{Bytes: math.MaxUint64}},
++		{`b + b""`, starlark.BudgetUsage{Bytes: math.MaxUint64}},
++		{`[1]`, starlark.BudgetUsage{Elements: math.MaxUint64}},
++		{`[x for x in (1,)]`, starlark.BudgetUsage{Elements: math.MaxUint64}},
++		{`a + a`, starlark.BudgetUsage{Elements: math.MaxUint64}},
++	} {
++		thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{})}
++		if err := thread.Budget.Charge(tc.initial); err != nil {
++			t.Fatal(err)
++		}
++		_, err := starlark.Eval(thread, "overflow.star", tc.source, starlark.StringDict{"a": starlark.Tuple{starlark.None}, "s": starlark.String("x"), "b": starlark.Bytes("x")})
++		var budgetErr *starlark.BudgetError
++		if !errors.As(err, &budgetErr) || thread.Budget.Usage() != tc.initial {
++			t.Fatalf("overflow %s: %v, %+v", tc.source, err, thread.Budget.Usage())
++		}
++	}
++	// Zero-length results remain legal when the counter has reached MaxUint64.
++	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{})}
++	if err := thread.Budget.Charge(starlark.BudgetUsage{Bytes: math.MaxUint64, Elements: math.MaxUint64}); err != nil {
++		t.Fatal(err)
++	}
++	for _, source := range []string{`"" + ""`, `b"" + b""`, `[]`, `[] + []`, `() + ()`, `[x for x in ()]`} {
++		if _, err := starlark.Eval(thread, "empty.star", source, nil); err != nil {
++			t.Fatalf("empty %s: %v", source, err)
++		}
++	}
++}
++
++func TestBudgetSequenceActiveIteratorMutabilityError(t *testing.T) {
++	items := starlark.NewList([]starlark.Value{starlark.None})
++	iter := items.Iterate()
++	defer iter.Done()
++	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 1})}
++	_, err := starlark.ExecFile(thread, "iteration.star", "def f(items):\n    items += (1,)\nf(items)\n", starlark.StringDict{"items": items})
++	var budgetErr *starlark.BudgetError
++	if err == nil || errors.As(err, &budgetErr) || !strings.Contains(err.Error(), "during iteration") || items.Len() != 1 || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
++		t.Fatalf("active-iterator mutability error changed: %v, %+v", err, thread.Budget.Usage())
++	}
++}
++
++func TestBudgetSequenceByteUnitsAndCompilerFolding(t *testing.T) {
++	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 6})}
++	v, err := starlark.Eval(thread, "unicode.star", `s + s`, starlark.StringDict{"s": starlark.String("雪")})
++	if err != nil || v != starlark.String("雪雪") || thread.Budget.Usage().Bytes != 6 {
++		t.Fatalf("byte units: %v, %v, %+v", v, err, thread.Budget.Usage())
++	}
++	thread.Budget = starlark.NewBudget(starlark.BudgetUsage{Bytes: 1, Elements: 3})
++	for _, source := range []string{`"ab" + "cd"`, `b"ab" + b"cd"`, `(1, 2) + (3,)`, `[1, 2] + [3]`} {
++		if _, err := starlark.Eval(thread, "fold.star", source, nil); err != nil {
++			t.Fatalf("compiler folding %s: %v", source, err)
++		}
++	}
++	if thread.Budget.Usage() != (starlark.BudgetUsage{Elements: 3}) {
++		t.Fatalf("folded-operation contract: %+v", thread.Budget.Usage())
++	}
++}
++
++func TestBudgetSequenceIndependentThreads(t *testing.T) {
++	globals, err := starlark.ExecFile(&starlark.Thread{}, "parallel.star", "def f():\n    return [x for x in range(3)] + [4]\n", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	globals.Freeze()
++	var wg sync.WaitGroup
++	for range 16 {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Elements: 8})}
++			v, err := starlark.Call(thread, globals["f"], nil, nil)
++			if err != nil || starlark.Len(v) != 4 || thread.Budget.Usage().Elements != 8 {
++				t.Errorf("independent thread: %v, %v, %+v", v, err, thread.Budget.Usage())
++			}
++		}()
++	}
++	wg.Wait()
++}
++
++func TestBudgetSequenceRejectsLargeConcat(t *testing.T) {
++	if os.Getenv("STARLARK_SEQUENCE_ALLOCATION_CHILD") != "1" {
++		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
++		defer cancel()
++		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBudgetSequenceRejectsLargeConcat$")
++		cmd.Env = append(os.Environ(), "STARLARK_SEQUENCE_ALLOCATION_CHILD=1")
++		if output, err := cmd.CombinedOutput(); err != nil {
++			t.Fatalf("allocation child: %v\n%s", err, output)
++		}
++		return
++	}
++	text := strings.Repeat("x", 8<<20)
++	values := make([]starlark.Value, 1<<19)
++	for i := range values {
++		values[i] = starlark.None
++	}
++	for _, input := range []starlark.Value{starlark.String(text), starlark.Bytes(text), starlark.NewList(values), starlark.Tuple(values)} {
++		thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 1, Elements: 1})}
++		globals, err := starlark.ExecFile(thread, "large-concat.star", "def f(a):\n    return a + a\n", nil)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var before, after runtime.MemStats
++		runtime.ReadMemStats(&before)
++		_, err = starlark.Call(thread, globals["f"], starlark.Tuple{input}, nil)
++		runtime.ReadMemStats(&after)
++		var budgetErr *starlark.BudgetError
++		if !errors.As(err, &budgetErr) || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
++			t.Fatalf("large %s: %v", input.Type(), err)
++		}
++		t.Logf("refused %s concat allocated %d bytes", input.Type(), after.TotalAlloc-before.TotalAlloc)
++		if allocated := after.TotalAlloc - before.TotalAlloc; allocated >= 4<<20 {
++			t.Fatalf("refused %s concat allocated %d bytes; charge must precede result backing allocation", input.Type(), allocated)
++		}
++	}
++}
+diff --git a/starlark/budget_test.go b/starlark/budget_test.go
+index 9d02f1f974cf0c81c9a358985a58c5e5eccd6c28..cd27d45785847b58660c857f7ca696ed4327872d 100644
+--- a/starlark/budget_test.go
++++ b/starlark/budget_test.go
+@@ -31,12 +31,16 @@ func TestBudgetRepeat(t *testing.T) {
+ 	} {
+ 		for _, reverse := range []bool{false, true} {
+ 			t.Run(tc.name+map[bool]string{false: "/right", true: "/left"}[reverse], func(t *testing.T) {
+-				source := "def repeat(n):\n    return " + tc.sequence + " * n\n"
++				sequence, err := starlark.Eval(&starlark.Thread{}, "sequence.star", tc.sequence, nil)
++				if err != nil {
++					t.Fatal(err)
++				}
++				source := "def repeat(n):\n    return sequence * n\n"
+ 				if reverse {
+-					source = "def repeat(n):\n    return n * " + tc.sequence + "\n"
++					source = "def repeat(n):\n    return n * sequence\n"
+ 				}
+ 				thread := &starlark.Thread{Budget: starlark.NewBudget(tc.limit)}
+-				globals, err := starlark.ExecFile(thread, "repeat.star", source, nil)
++				globals, err := starlark.ExecFile(thread, "repeat.star", source, starlark.StringDict{"sequence": sequence})
+ 				if err != nil {
+ 					t.Fatal(err)
+ 				}
+@@ -107,21 +111,30 @@ func TestBudgetRejectsLargeRepeat(t *testing.T) {
+ }
+ 
+ func TestBudgetUnchargedBoundaries(t *testing.T) {
+-	// These paths deliberately remain outside the initial accounting contract.
++	// Host values, ordinary builtins, tuple literals and mutable += remain outside
++	// this accounting contract, including arbitrary iterable-driven extension.
++	items := starlark.NewList(nil)
+ 	thread := &starlark.Thread{Budget: starlark.NewBudget(starlark.BudgetUsage{Bytes: 1, Elements: 1})}
+-	_, err := starlark.ExecFile(thread, "other.star", `def build():
+-    answer = "ab" + "cd"
+-    items = [1, 2, 3]
+-    items += [4]
+-    items.append(5)
+-build()
+-`, nil)
+-	if err != nil || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
++	_, err := starlark.ExecFile(thread, "other.star", `def build(items):
++    answer = "".join(("ab", "cd"))
++    items += (1, 2, 3)
++    items.append(4)
++    items.extend((5, 6))
++    return list((answer, items))
++build(items)
++`, starlark.StringDict{"items": items})
++	if err != nil || items.Len() != 6 || thread.Budget.Usage() != (starlark.BudgetUsage{}) {
+ 		t.Fatalf("uncharged contract changed: %v, %+v", err, thread.Budget.Usage())
+ 	}
+ 	// The threadless public API preserves its existing unbudgeted behavior.
+-	if _, err := starlark.Binary(syntax.STAR, starlark.String("ab"), starlark.MakeInt(2)); err != nil {
+-		t.Fatalf("Binary: %v", err)
++	for _, op := range []syntax.Token{syntax.STAR, syntax.PLUS} {
++		y := starlark.Value(starlark.String("cd"))
++		if op == syntax.STAR {
++			y = starlark.MakeInt(2)
++		}
++		if _, err := starlark.Binary(op, starlark.String("ab"), y); err != nil {
++			t.Fatalf("Binary: %v", err)
++		}
+ 	}
+ }
+ 
+diff --git a/starlark/eval.go b/starlark/eval.go
+index 1a3fd57f59c089db900ce800716d5cb5682c7fdf..2fb4e908ffae2ac22d45d826086b43119e788e6f 100644
+--- a/starlark/eval.go
++++ b/starlark/eval.go
+@@ -51,7 +51,7 @@ type Thread struct {
+ 	// The default behavior is to call thread.Cancel("too many steps").
+ 	OnMaxSteps func(thread *Thread)
+ 
+-	// Budget optionally limits declared sequence repetition and host resources.
++	// Budget optionally limits declared sequence growth and host resources.
+ 	// See BudgetUsage for the intentionally limited accounting coverage.
+ 	Budget *Budget
+ 
+@@ -818,10 +818,16 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
+ 		switch x := x.(type) {
+ 		case String:
+ 			if y, ok := y.(String); ok {
++				if err := budget.Charge(BudgetUsage{Bytes: uint64(len(x)) + uint64(len(y))}); err != nil {
++					return nil, err
++				}
+ 				return x + y, nil
+ 			}
+ 		case Bytes:
+ 			if y, ok := y.(Bytes); ok {
++				if err := budget.Charge(BudgetUsage{Bytes: uint64(len(x)) + uint64(len(y))}); err != nil {
++					return nil, err
++				}
+ 				return x + y, nil
+ 			}
+ 		case Int:
+@@ -848,6 +854,9 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
+ 			}
+ 		case *List:
+ 			if y, ok := y.(*List); ok {
++				if err := budget.Charge(BudgetUsage{Elements: uint64(x.Len()) + uint64(y.Len())}); err != nil {
++					return nil, err
++				}
+ 				z := make([]Value, 0, x.Len()+y.Len())
+ 				z = append(z, x.elems...)
+ 				z = append(z, y.elems...)
+@@ -855,6 +864,9 @@ func binaryWithBudget(budget *Budget, op syntax.Token, x, y Value) (Value, error
+ 			}
+ 		case Tuple:
+ 			if y, ok := y.(Tuple); ok {
++				if err := budget.Charge(BudgetUsage{Elements: uint64(len(x)) + uint64(len(y))}); err != nil {
++					return nil, err
++				}
+ 				z := make(Tuple, 0, len(x)+len(y))
+ 				z = append(z, x...)
+ 				z = append(z, y...)
+diff --git a/starlark/interp.go b/starlark/interp.go
+index 408302ac285920beb19e036341d0672ca7d79930..3eead3162589d0dc9018679fc99173a5fe1b3c65 100644
+--- a/starlark/interp.go
++++ b/starlark/interp.go
+@@ -253,7 +253,7 @@ loop:
+ 				}
+ 			}
+ 			if z == nil {
+-				z, err = Binary(syntax.PLUS, x, y)
++				z, err = binaryWithBudget(thread.Budget, syntax.PLUS, x, y)
+ 				if err != nil {
+ 					break loop
+ 				}
+@@ -515,7 +515,9 @@ loop:
+ 			elem := stack[sp-1]
+ 			list := stack[sp-2].(*List)
+ 			sp -= 2
+-			list.elems = append(list.elems, elem)
++			if err = appendToComprehension(thread.Budget, list, elem); err != nil {
++				break loop
++			}
+ 
+ 		case compile.SLICE:
+ 			x := stack[sp-4]
+@@ -592,6 +594,9 @@ loop:
+ 
+ 		case compile.MAKELIST:
+ 			n := int(arg)
++			if err = thread.Budget.Charge(BudgetUsage{Elements: uint64(n)}); err != nil {
++				break loop
++			}
+ 			elems := make([]Value, n)
+ 			sp -= n
+ 			copy(elems, stack[sp:])
+@@ -796,3 +801,13 @@ func (c *cell) Freeze() {
+ }
+ func (c *cell) Truth() Bool           { panic("unreachable") }
+ func (c *cell) Hash() (uint32, error) { panic("unreachable") }
++
++// appendToComprehension charges one logical output slot before changing the
++// fresh, mutable comprehension list. Earlier successful appends are not refunded.
++func appendToComprehension(budget *Budget, list *List, elem Value) error {
++	if err := budget.Charge(BudgetUsage{Elements: 1}); err != nil {
++		return err
++	}
++	list.elems = append(list.elems, elem)
++	return nil
++}

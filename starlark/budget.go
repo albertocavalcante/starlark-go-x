@@ -10,9 +10,11 @@ import (
 )
 
 // BudgetUsage counts declared logical resources, not Go heap or CPU usage.
-// The interpreter charges Bytes for string/bytes repetition results and Elements
-// for list/tuple repetition results. Work is charged only by cooperating hosts.
-// Other operators, constructors, parsing, and builtins are not charged automatically.
+// The interpreter charges Bytes for string/bytes repetition and concatenation
+// results, and Elements for list/tuple repetition and concatenation results,
+// list literal slots, and each comprehension append. Work is charged only by
+// cooperating hosts. Other operations and builtins are not charged automatically.
+// These counts exclude operand evaluation, VM frames and spare backing capacity.
 type BudgetUsage struct {
 	Bytes, Elements, Work uint64
 }

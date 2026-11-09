@@ -107,12 +107,17 @@ thread := &starlark.Thread{
 }
 ```
 
-The interpreter charges the complete output length **before** string/bytes or
-list/tuple repetition by an integer, in either operand order. Bytes and elements
-are separate units. Charges are cumulative across calls/modules using the same
-budget, and are not refunded when objects become unreachable. Even a repetition
-that reuses storage can incur its logical output charge. Zero limits mean
+The interpreter charges complete output length **before** string/bytes and
+list/tuple repetition or runtime concatenation. List literals charge their slots;
+list comprehensions charge one slot per append. Immutable `+=` uses the same
+concatenation charge. Bytes and elements are separate units. Charges accumulate
+across calls/modules using the same budget and are not refunded. Even operations
+that reuse storage can incur their logical output charge. Zero limits mean
 unlimited; counter overflow is always refused. A nil budget disables accounting.
+
+Concatenation/list-construction coverage requires a manifest containing
+`sequence-growth-budget`. See the [operation inventory and refusal contract](BUDGET.md)
+for compiler folding, evaluation order and remaining work.
 
 Cooperating Go builtins can call `thread.Budget.Charge` before work or allocation.
 For example, charge `BudgetUsage{Work: 1}` at each bounded iteration. Propagate a
@@ -125,13 +130,14 @@ source-mapped `*starlark.EvalError`; inspect it with `errors.As`. A budget is no
 safe for concurrent access and must not be shared by executing threads. Reuse
 preserves accumulated charges; install a new budget to reset them.
 
-**Initial coverage is deliberately narrow.** Other operators (including
-concatenation), literals, comprehensions, collection growth, parsing/compilation,
-ordinary builtins, custom values and the threadless `starlark.Binary` API are not
-automatically charged. Work is host-defined; byte charges are not actual Go
-allocations, retained heap or RSS. Budget success does not qualify an untrusted
-program as memory-bounded. Keep input/output/concurrency bounds and isolated
-worker controls appropriate to the host's trust model.
+**Coverage remains narrow.** Mutable list `+=`, ordinary collection methods,
+tuple literals, slices, conversions, dict/set/JSON/BigInt operations,
+parsing/compilation, ordinary builtins, custom values and the threadless
+`starlark.Binary` API are not automatically charged. Operand expressions, VM
+frames and spare backing capacity remain unmetered. Work is host-defined; byte
+charges are not actual Go allocations, retained heap or RSS. Budget success does
+not qualify an untrusted program as memory-bounded. Keep input/output/concurrency
+bounds and isolated worker controls appropriate to the host's trust model.
 
 ## Annotation boundary
 
