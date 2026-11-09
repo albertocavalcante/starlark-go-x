@@ -1,0 +1,215 @@
+diff --git a/starlark/int_pointer_safety_test.go b/starlark/int_pointer_safety_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..bae7e000d242a1d9ba039d7760a6f2e7fb4ad285
+--- /dev/null
++++ b/starlark/int_pointer_safety_test.go
+@@ -0,0 +1,52 @@
++//go:build (linux || darwin || dragonfly || freebsd || netbsd || solaris) && (amd64 || arm64 || mips64x || ppc64 || ppc64le || loong64 || s390x)
++
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark
++
++import (
++	"math"
++	"reflect"
++	"runtime"
++	"testing"
++)
++
++var intPointerSink Value
++
++func TestIntPointerBoundariesSurviveGC(t *testing.T) {
++	want := []int64{math.MinInt64, math.MinInt32 - 1, math.MinInt32, -1, 0, 1, math.MaxInt32, math.MaxInt32 + 1, math.MaxInt64}
++	values := make([]Value, len(want))
++	for i, n := range want {
++		values[i] = MakeInt64(n)
++	}
++	for range 3 {
++		runtime.GC()
++		for i, value := range values {
++			got, ok := value.(Int).Int64()
++			if !ok || got != want[i] {
++				t.Fatalf("integer %d after GC = %d (%v), want %d", i, got, ok, want[i])
++			}
++		}
++	}
++	runtime.KeepAlive(values)
++}
++
++func TestSmallIntInterfaceDoesNotAllocate(t *testing.T) {
++	if reflect.ValueOf(smallints).IsZero() {
++		t.Skip("mmap integer optimization unavailable; fallback has separate coverage")
++	}
++	for _, n := range []int64{math.MinInt32, -1, 0, 1, math.MaxInt32} {
++		if allocs := testing.AllocsPerRun(100, func() { intPointerSink = MakeInt64(n) }); allocs != 0 {
++			t.Fatalf("small integer %d: %v allocations, want zero", n, allocs)
++		}
++	}
++}
++
++func BenchmarkSmallIntPointer(b *testing.B) {
++	b.ReportAllocs()
++	for n := 0; n < b.N; n++ {
++		intPointerSink = MakeInt64(int64(int32(n)))
++	}
++}
+diff --git a/starlark/int_posix64.go b/starlark/int_posix64.go
+index 70c949efc218cfad944a88673c3f672df089e007..df9d92eb7e56d2422aa89dd60d6363cab29f6691 100644
+--- a/starlark/int_posix64.go
++++ b/starlark/int_posix64.go
+@@ -1,5 +1,9 @@
+ //go:build (linux || darwin || dragonfly || freebsd || netbsd || solaris) && (amd64 || arm64 || mips64x || ppc64 || ppc64le || loong64 || s390x)
+ 
++// Modifications Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
+ package starlark
+ 
+ // This file defines an optimized Int implementation for 64-bit machines
+@@ -44,7 +48,7 @@ type intImpl unsafe.Pointer
+ 
+ // get returns the (small, big) arms of the union.
+ func (i Int) get() (int64, *big.Int) {
+-	if smallints == 0 {
++	if smallints == nil {
+ 		// optimization disabled
+ 		if x := (*big.Int)(i.impl); isSmall(x) {
+ 			return x.Int64(), nil
+@@ -53,37 +57,37 @@ func (i Int) get() (int64, *big.Int) {
+ 		}
+ 	}
+ 
+-	if ptr := uintptr(i.impl); ptr >= smallints && ptr < smallints+1<<32 {
+-		return math.MinInt32 + int64(ptr-smallints), nil
++	base := uintptr(smallints)
++	if ptr := uintptr(i.impl); ptr >= base && ptr-base < 1<<32 {
++		return math.MinInt32 + int64(ptr-base), nil
+ 	}
+ 	return 0, (*big.Int)(i.impl)
+ }
+ 
+ // Precondition: math.MinInt32 <= x && x <= math.MaxInt32
+ func makeSmallInt(x int64) Int {
+-	if smallints == 0 {
++	if smallints == nil {
+ 		// optimization disabled
+ 		return Int{intImpl(big.NewInt(x))}
+ 	}
+ 
+-	return Int{intImpl(uintptr(x-math.MinInt32) + smallints)}
++	return Int{intImpl(unsafe.Add(smallints, uintptr(x-math.MinInt32)))}
+ }
+ 
+ // Precondition: x cannot be represented as int32.
+ func makeBigInt(x *big.Int) Int { return Int{intImpl(x)} }
+ 
+-// smallints is the base address of a 2^32 byte memory region.
++// smallints points to the base of a 2^32 byte memory region.
+ // Pointers to addresses in this region represent int32 values.
+-// We assume smallints is not at the very top of the address space.
+ //
+-// Zero means the optimization is disabled and all Ints allocate a big.Int.
++// Nil means the optimization is disabled and all Ints allocate a big.Int.
+ var smallints = reserveAddresses(1 << 32)
+ 
+-func reserveAddresses(len int) uintptr {
++func reserveAddresses(len int) unsafe.Pointer {
+ 	b, err := unix.Mmap(-1, 0, len, unix.PROT_READ, unix.MAP_PRIVATE|unix.MAP_ANON)
+ 	if err != nil {
+ 		log.Printf("Starlark failed to allocate 4GB address space: %v. Integer performance may suffer.", err)
+-		return 0 // optimization disabled
++		return nil // optimization disabled
+ 	}
+-	return uintptr(unsafe.Pointer(&b[0]))
++	return unsafe.Pointer(unsafe.SliceData(b))
+ }
+diff --git a/starlark/unpack_pointer_safety_test.go b/starlark/unpack_pointer_safety_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d1a3310c72f7ab509cd539d2ab9585b48149107
+--- /dev/null
++++ b/starlark/unpack_pointer_safety_test.go
+@@ -0,0 +1,80 @@
++// Copyright 2026 Alberto Cavalcante. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package starlark
++
++import (
++	"fmt"
++	"runtime"
++	"strings"
++	"testing"
++)
++
++func TestReflectUnpackLocalDoesNotAllocate(t *testing.T) {
++	var input Value = String("metadata")
++	allocs := testing.AllocsPerRun(100, func() {
++		var output String // exercises the generic reflection branch, not *string
++		if err := unpackArgNoEscape(input, &output); err != nil {
++			t.Fatal(err)
++		}
++		if output != String("metadata") {
++			t.Fatal("incorrect reflected assignment")
++		}
++	})
++	if allocs != 0 {
++		t.Fatalf("local reflected destination: %v allocations, want zero", allocs)
++	}
++}
++
++func TestReflectUnpackStackAndGC(t *testing.T) {
++	// A new goroutine starts with a small stack. Recursive frames grow that
++	// stack around reflected writes; collection checks retained interface data.
++	done := make(chan error, 1)
++	go func() {
++		for range 3 {
++			if err := reflectUnpackFrames(32); err != nil {
++				done <- err
++				return
++			}
++			runtime.GC()
++		}
++		done <- nil
++	}()
++	if err := <-done; err != nil {
++		t.Fatal(err)
++	}
++}
++
++func reflectUnpackFrames(depth int) error {
++	var padding [1024]byte
++	padding[depth] = byte(depth)
++	input := String(strings.Repeat("metadata", depth+1))
++	var output String
++	if err := unpackArgNoEscape(input, &output); err != nil {
++		return err
++	}
++	if depth > 0 {
++		if err := reflectUnpackFrames(depth - 1); err != nil {
++			return err
++		}
++	} else {
++		runtime.GC() // all caller destinations and padding remain live
++	}
++	if output != input || padding[depth] != byte(depth) {
++		return fmt.Errorf("reflected destination changed after stack growth")
++	}
++	runtime.KeepAlive(padding)
++	return nil
++}
++
++func BenchmarkReflectUnpackLocal(b *testing.B) {
++	var input Value = String("metadata")
++	b.ReportAllocs()
++	for range b.N {
++		var output String
++		if err := unpackArgNoEscape(input, &output); err != nil {
++			b.Fatal(err)
++		}
++	}
++}

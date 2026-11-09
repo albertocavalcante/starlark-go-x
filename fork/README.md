@@ -4,6 +4,10 @@ Every published revision records one Google upstream commit and an ordered queue
 of intentional fork changes in `manifest.json`. Alberto Cavalcante owns his fork
 additions; upstream notices and the BSD license remain intact. See `FORK_NOTICE`.
 
+The [pointer diagnostic assessment](VET.md) records the remaining unpack
+optimization warning and the evidence required to review it. Raw full-package
+vet remains visibly non-green while that implementation remains unchanged.
+
 ## Verify a revision
 
 From a clean checkout at the revision being checked:
