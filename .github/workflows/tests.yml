@@ -28,6 +28,7 @@ jobs:
         env:
           GOWORK: 'off'
         run: |
+          bash test-samples.sh
           export GOTMPDIR
           GOTMPDIR=$(mktemp -d "$RUNNER_TEMP/bench-fixtures.XXXXXX")
           go test -mod=readonly ./...

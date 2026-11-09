@@ -72,6 +72,10 @@ validated again before benchstat runs:
 - `current-budget-fixed-{nil,active}-comparison.txt`: current budget cost at each
   fixed hook mode.
 
+Sample validation rejects truncated rows, invalid iteration/metric values and
+missing, duplicate or unknown metric units before benchstat. Run
+`bash fork/bench/test-samples.sh` for the malformed-input regression fixtures.
+
 Parse appears only in the runtime comparison because it has no Thread modes.
 Do not interpret mixed-mode geomeans as application speed. Old-to-current changes
 include other runtime work as well as budgets; use within-current toggles when

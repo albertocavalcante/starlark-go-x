@@ -28,7 +28,7 @@ unset GOEXPERIMENT
   go version
   go env -json GOOS GOARCH GOFLAGS GOEXPERIMENT CGO_ENABLED GOTOOLCHAIN GOAMD64 GOARM64
   printf 'GOGC=100; GOMEMLIMIT=off; GODEBUG=; GOMAXPROCS=1; samples=12; benchtime=200ms; six execution orders repeated twice\n'
-  shasum -a 256 ./*_test.go go.mod go.sum fork.go.mod fork.go.sum current.go.mod current.go.sum tools/go.mod tools/go.sum run.sh
+  shasum -a 256 ./*_test.go go.mod go.sum fork.go.mod fork.go.sum current.go.mod current.go.sum tools/go.mod tools/go.sum run.sh check-samples.awk test-samples.sh
 } >"$output/metadata.txt"
 
 # All source pins are downloaded before inspecting .Dir, including cold caches.
@@ -84,16 +84,7 @@ done
 
 # Require all expected rows, reject unknown modes, and reject partial samples.
 check_samples() {
-  awk 'FNR == NR { expected[$0] = 1; next }
-    /^Benchmark/ {
-      name = $1; sub(/-[0-9]+$/, "", name)
-      if (!(name in expected)) { print "unexpected benchmark: " name > "/dev/stderr"; bad = 1 }
-      count[name]++
-    }
-    END {
-      for (name in expected) if (count[name] != 12) { print "incomplete benchmark: " name > "/dev/stderr"; bad = 1 }
-      exit bad
-    }' "$1" "$2"
+  awk -f check-samples.awk "$1" "$2"
 }
 for implementation in upstream old current; do
   hooks='nil active'

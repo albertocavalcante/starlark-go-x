@@ -280,6 +280,21 @@
         "go run ./fork -revision HEAD"
       ],
       "upstream_disposition": "independent fork logical-resource API; not heap isolation"
+    },
+    {
+      "id": "benchmark-fixtures",
+      "file": "021-benchmark-fixtures.patch",
+      "sha256": "e5d5fed7aa0b9444f38535fbcd4813adeb7013d0f7991857af60b6c50f66f976",
+      "reason": "Validate every pinned nested benchmark configuration and reject malformed or incomplete sample reports in CI.",
+      "dependencies": [
+        "runmux-routing"
+      ],
+      "tests": [
+        "bash fork/bench/test-samples.sh",
+        "actionlint .github/workflows/tests.yml",
+        "go run ./fork -revision HEAD"
+      ],
+      "upstream_disposition": "fork development measurement and regression coverage"
     }
   ]
 }
