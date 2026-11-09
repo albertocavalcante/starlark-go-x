@@ -11,6 +11,18 @@ for ((i = 0; i < 12; i++)); do
   printf '%s\n' 'BenchmarkLoop/hooks=nil/budget=nil-1 20 400 ns/op 192 B/op 5 allocs/op'
 done >"$fixture_dir/valid"
 awk -f "$checker" "$fixture_dir/expected" "$fixture_dir/valid"
+for control in iteration-boundary metric-boundary positive-exponent negative-exponent; do
+  awk -v change="$control" '
+    NR == 2 {
+      if (change == "iteration-boundary") $2 = "1000000000"
+      if (change == "metric-boundary") $3 = "1e300"
+      if (change == "positive-exponent") $3 = "4e+2"
+      if (change == "negative-exponent") $3 = "4e-2"
+    }
+    { print }
+  ' "$fixture_dir/valid" >"$fixture_dir/control"
+  awk -f "$checker" "$fixture_dir/expected" "$fixture_dir/control"
+done
 reject() {
   if awk -f "$checker" "$fixture_dir/expected" "$fixture_dir/invalid" >"$fixture_dir/output" 2>&1; then
     echo "invalid samples accepted: $1" >&2
@@ -19,7 +31,7 @@ reject() {
 }
 sed '$s/ .*//' "$fixture_dir/valid" >"$fixture_dir/invalid"
 reject truncated-twelfth-row
-for field in iterations duration unit duplicate missing overflow count-overflow; do
+for field in iterations duration unit duplicate missing overflow count-overflow plain-overflow odd-fields iteration-boundary metric-boundary; do
   awk -v change="$field" '
     NR == 2 {
       if (change == "iterations") $2 = 0
@@ -29,6 +41,13 @@ for field in iterations duration unit duplicate missing overflow count-overflow;
       if (change == "missing") NF = 4
       if (change == "overflow") $3 = "1e999"
       if (change == "count-overflow") $2 = "99999999999999999999999999"
+      if (change == "plain-overflow") {
+        for (j = 0; j < 400; j++) big = big "9"
+        $3 = big
+      }
+      if (change == "odd-fields") $9 = "extra"
+      if (change == "iteration-boundary") $2 = "1000000001"
+      if (change == "metric-boundary") $3 = "1e301"
     }
     { print }
   ' "$fixture_dir/valid" >"$fixture_dir/invalid"
